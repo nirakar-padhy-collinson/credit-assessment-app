@@ -1,0 +1,247 @@
+{
+  "base_score": 55.0,
+  "score_bounds": {
+    "min": 0,
+    "max": 100
+  },
+  "risk_probability": {
+    "score_to_probability_multiplier": 0.55,
+    "min": 0.03,
+    "max": 0.65
+  },
+  "risk_bands": [
+    {
+      "max": 0.12,
+      "label": "Low Risk"
+    },
+    {
+      "max": 0.22,
+      "label": "Moderate Risk"
+    },
+    {
+      "max": 0.35,
+      "label": "Elevated Risk"
+    },
+    {
+      "label": "High Risk"
+    }
+  ],
+  "decision_policy": {
+    "kyc_incomplete_decision": "Approve with Conditions",
+    "bands": [
+      {
+        "max": 0.11,
+        "decision": "Approve"
+      },
+      {
+        "max": 0.22,
+        "decision": "Approve with Conditions"
+      },
+      {
+        "max": 0.33,
+        "decision": "Manual Review"
+      },
+      {
+        "decision": "Decline"
+      }
+    ]
+  },
+  "next_steps": {
+    "Approve": "Approve",
+    "Approve with Conditions": "Approve with Conditions",
+    "Manual Review": "Send to underwriter for review",
+    "Decline": "Decline"
+  },
+  "rules": {
+    "repayment_burden": {
+      "factor": "Repayment burden",
+      "metric_key": "foir",
+      "bands": [
+        {
+          "max": 0.35,
+          "points": 14,
+          "description": "FOIR at {foir_pct} is comfortably within policy tolerance."
+        },
+        {
+          "max": 0.5,
+          "points": 6,
+          "description": "FOIR at {foir_pct} is manageable but leaves moderate cushion."
+        },
+        {
+          "max": 0.65,
+          "points": -10,
+          "description": "FOIR at {foir_pct} indicates stretched repayment capacity."
+        },
+        {
+          "points": -20,
+          "description": "FOIR at {foir_pct} is above prudent first-stage thresholds."
+        }
+      ]
+    },
+    "credit_bureau_score": {
+      "factor": "Credit bureau score",
+      "metric_key": "credit_score",
+      "bands": [
+        {
+          "min": 780,
+          "points": 16,
+          "description": "Credit score of {credit_score} reflects strong repayment behaviour."
+        },
+        {
+          "min": 730,
+          "points": 10,
+          "description": "Credit score of {credit_score} is above portfolio average."
+        },
+        {
+          "min": 680,
+          "points": 3,
+          "description": "Credit score of {credit_score} is acceptable for initial screening."
+        },
+        {
+          "min": 620,
+          "points": -10,
+          "description": "Credit score of {credit_score} requires tighter monitoring."
+        },
+        {
+          "points": -22,
+          "description": "Credit score of {credit_score} is weak for retail underwriting."
+        }
+      ]
+    },
+    "recent_delinquency_history": {
+      "factor": "Recent delinquency history",
+      "metric_key": "prior_delinquency_count_24m",
+      "bands": [
+        {
+          "max": 0,
+          "points": 8,
+          "description": "No delinquency in the last 24 months."
+        },
+        {
+          "max": 1,
+          "points": -6,
+          "description": "One delinquency in the last 24 months raises caution."
+        },
+        {
+          "points": -16,
+          "description": "{prior_delinquency_count_24m} delinquencies in the last 24 months materially elevate risk."
+        }
+      ]
+    },
+    "payment_bounce_behaviour": {
+      "factor": "Payment bounce behaviour",
+      "metric_key": "bounced_payments_12m",
+      "bands": [
+        {
+          "max": 0,
+          "points": 6,
+          "description": "No bounced payments observed in the last 12 months."
+        },
+        {
+          "max": 2,
+          "points": -4,
+          "description": "A few payment bounces indicate mild cash-flow stress."
+        },
+        {
+          "points": -12,
+          "description": "{bounced_payments_12m} bounced payments suggest unstable repayment behaviour."
+        }
+      ]
+    },
+    "employment_stability": {
+      "factor": "Employment stability",
+      "metric_key": "years_in_current_job",
+      "bands": [
+        {
+          "min": 5,
+          "points": 8,
+          "description": "{years_in_current_job:.1f} years in current job supports income stability."
+        },
+        {
+          "min": 2,
+          "points": 4,
+          "description": "{years_in_current_job:.1f} years in current job is acceptable."
+        },
+        {
+          "min": 1,
+          "points": -2,
+          "description": "{years_in_current_job:.1f} years in current job is still seasoning."
+        },
+        {
+          "points": -8,
+          "description": "Only {years_in_current_job:.1f} years in current job limits confidence in stable earnings."
+        }
+      ]
+    },
+    "banking_relationship": {
+      "factor": "Banking relationship",
+      "metric_key": "existing_customer_flag",
+      "when": {
+        "equals": 1
+      },
+      "points": 5,
+      "description": "Existing customer relationship improves trust and observability."
+    },
+    "documentation_completeness": {
+      "factor": "Documentation completeness",
+      "metric_key": "kyc_complete_flag",
+      "when_true": {
+        "points": 3,
+        "description": "KYC package is complete."
+      },
+      "when_false": {
+        "points": -8,
+        "description": "KYC package is incomplete and requires remediation before disbursal."
+      }
+    },
+    "loan_size_vs_income": {
+      "factor": "Loan size vs income",
+      "metric_key": "loan_to_income",
+      "bands": [
+        {
+          "max": 0.35,
+          "points": 8,
+          "description": "Loan-to-annual-income at {loan_to_income:.2f}x is conservative."
+        },
+        {
+          "max": 0.6,
+          "points": 2,
+          "description": "Loan-to-annual-income at {loan_to_income:.2f}x is within common retail ranges."
+        },
+        {
+          "max": 1.0,
+          "points": -7,
+          "description": "Loan-to-annual-income at {loan_to_income:.2f}x is relatively high."
+        },
+        {
+          "points": -15,
+          "description": "Loan-to-annual-income at {loan_to_income:.2f}x is aggressive for first-stage approval."
+        }
+      ]
+    },
+    "collateral_support": {
+      "factor": "Collateral support",
+      "metric_key": "ltv",
+      "when": {
+        "app_field": "has_collateral_flag",
+        "equals": 1
+      },
+      "bands": [
+        {
+          "max": 0.65,
+          "points": 10,
+          "description": "LTV at {ltv_pct} is strong and well covered by collateral."
+        },
+        {
+          "max": 0.85,
+          "points": 4,
+          "description": "LTV at {ltv_pct} provides moderate collateral support."
+        },
+        {
+          "points": -8,
+          "description": "LTV at {ltv_pct} is thin for secured lending comfort."
+        }
+      ]
+    }
+  }
+}

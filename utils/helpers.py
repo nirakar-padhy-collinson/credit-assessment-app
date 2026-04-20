@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 def calculate_emi(principal: float, annual_rate: float, tenure_months: int) -> float:
@@ -31,30 +31,42 @@ def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(value, high))
 
 
-def band_from_probability(prob: float) -> str:
-    if prob < 0.12:
-        return "Low Risk"
-    if prob < 0.22:
-        return "Moderate Risk"
-    if prob < 0.35:
-        return "Elevated Risk"
-    return "High Risk"
+def band_from_probability(prob: float, bands: Optional[List[Dict[str, float | str]]] = None) -> str:
+    bands = bands or [
+        {"max": 0.12, "label": "Low Risk"},
+        {"max": 0.22, "label": "Moderate Risk"},
+        {"max": 0.35, "label": "Elevated Risk"},
+        {"label": "High Risk"},
+    ]
+    for band in bands:
+        max_threshold = band.get("max")
+        if max_threshold is None or prob < float(max_threshold):
+            return str(band["label"])
+    return str(bands[-1]["label"])
 
 
-def decision_from_probability(prob: float, kyc_complete_flag: int) -> str:
+def decision_from_probability(prob: float, kyc_complete_flag: int, decision_policy: Optional[Dict] = None) -> str:
+    policy = decision_policy or {
+        "kyc_incomplete_decision": "Approve with Conditions",
+        "bands": [
+            {"max": 0.11, "decision": "Approve"},
+            {"max": 0.22, "decision": "Approve with Conditions"},
+            {"max": 0.33, "decision": "Manual Review"},
+            {"decision": "Decline"},
+        ],
+    }
     if not kyc_complete_flag:
-        return "Approve with Conditions"
-    if prob < 0.11:
-        return "Approve"
-    if prob < 0.22:
-        return "Approve with Conditions"
-    if prob < 0.33:
-        return "Manual Review"
-    return "Decline"
+        return str(policy["kyc_incomplete_decision"])
+
+    for band in policy["bands"]:
+        max_threshold = band.get("max")
+        if max_threshold is None or prob < float(max_threshold):
+            return str(band["decision"])
+    return str(policy["bands"][-1]["decision"])
 
 
-def step_from_decision(decision: str) -> str:
-    mapping = {
+def step_from_decision(decision: str, mapping: Optional[Dict[str, str]] = None) -> str:
+    mapping = mapping or {
         "Approve": "Approve",
         "Approve with Conditions": "Approve with Conditions",
         "Manual Review": "Send to underwriter for review",

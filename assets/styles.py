@@ -327,13 +327,39 @@ section[data-testid="stSidebar"] {
 }
 
 [data-testid="stDataFrame"] {
+    background: linear-gradient(180deg, rgba(255, 252, 248, 0.94) 0%, rgba(250, 245, 237, 0.92) 100%);
     border-radius: 18px;
     overflow: hidden;
-    border: 1px solid rgba(34, 45, 60, 0.08);
+    border: 1px solid rgba(34, 45, 60, 0.10);
+    box-shadow: 0 14px 28px rgba(20, 34, 50, 0.06);
 }
 
 [data-testid="stDataFrame"] [role="grid"] {
-    background: rgba(255, 252, 248, 0.82);
+    background: transparent;
+}
+
+[data-testid="stDataFrame"] [role="columnheader"] {
+    background: linear-gradient(180deg, rgba(245, 237, 226, 0.92) 0%, rgba(241, 233, 222, 0.92) 100%);
+    color: #4d5a6a;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(34, 45, 60, 0.08);
+}
+
+[data-testid="stDataFrame"] [role="gridcell"] {
+    background: rgba(255, 252, 248, 0.72);
+    color: #263242;
+    border-top: 1px solid rgba(34, 45, 60, 0.04);
+}
+
+[data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {
+    background: rgba(249, 244, 236, 0.82);
+}
+
+[data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {
+    background: rgba(240, 232, 219, 0.92);
 }
 
 .stTabs [data-baseweb="tab-list"] {
@@ -549,14 +575,10 @@ textarea {
     min-height: 58px !important;
     height: 58px !important;
     box-sizing: border-box;
-}
-
-[data-testid="stNumberInput"] input,
-[data-testid="stTextInput"] input,
-[data-testid="stSelectbox"] [role="combobox"],
-[data-testid="stMultiSelect"] [role="combobox"] {
-    min-height: 24px;
-    line-height: 1.3 !important;
+    display: flex !important;
+    align-items: center !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
 }
 
 [data-testid="stNumberInput"],
@@ -588,11 +610,23 @@ textarea {
     align-items: flex-start;
 }
 
+[data-testid="stNumberInput"] [data-baseweb="input"] > div,
+[data-testid="stTextInput"] [data-baseweb="input"] > div {
+    padding-left: 0.85rem !important;
+    padding-right: 0.85rem !important;
+}
+
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input {
+    min-height: 100% !important;
+    height: 100% !important;
+    line-height: 1.4 !important;
+}
+
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
 [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-    align-items: center;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
+    padding-left: 0.85rem !important;
+    padding-right: 0.85rem !important;
 }
 
 [data-testid="stMultiSelect"] label[data-testid="stWidgetLabel"],
@@ -605,14 +639,24 @@ textarea {
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] [role="combobox"],
 [data-testid="stSelectbox"] [data-baseweb="select"] [role="combobox"] {
-    line-height: 1.35 !important;
-    min-height: 28px;
+    display: flex !important;
+    align-items: center !important;
+    min-height: 100% !important;
+    height: 100% !important;
+    line-height: 1.4 !important;
 }
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] span {
-    display: inline-flex;
-    align-items: center;
-    min-height: 24px;
+    display: inline-block;
+    line-height: 1.4 !important;
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="select"] [aria-hidden="true"],
+[data-testid="stSelectbox"] [data-baseweb="select"] [aria-hidden="true"] {
+    line-height: 1.5 !important;
 }
 
 label[data-testid="stWidgetLabel"] p {

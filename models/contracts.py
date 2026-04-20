@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 class CreditApplication:
     loan_id: str
     applicant_id: str
+    employee_id: str = ""
+    branch_id: str = ""
     applicant_name: str = ""
     age: int = 30
     monthly_income: float = 0.0

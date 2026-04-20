@@ -1,16 +1,60 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Tuple
 
 import numpy as np
 import pandas as pd
 
+from models.contracts import CreditApplication, EngineOutput
 from scoring.rule_engine import RuleBasedDecisionEngine
-from models.contracts import CreditApplication
 
 
 DATA_PATH = Path("data/historical_loan_applications.csv")
+EMPLOYEE_BRANCH_MAP = {
+    "BR0001": [f"EM{i:04d}" for i in range(1, 6)],
+    "BR0002": [f"EM{i:04d}" for i in range(6, 11)],
+}
+ALL_BRANCH_IDS = list(EMPLOYEE_BRANCH_MAP.keys())
+ID_PATTERNS = {
+    "loan_id": "LN",
+    "applicant_id": "AP",
+    "employee_id": "EM",
+    "branch_id": "BR",
+}
+HISTORY_COLUMNS = [
+    "loan_id",
+    "applicant_id",
+    "employee_id",
+    "branch_id",
+    "applicant_name",
+    "age",
+    "monthly_income",
+    "employment_type",
+    "years_in_current_job",
+    "existing_monthly_obligations",
+    "requested_loan_amount",
+    "loan_purpose",
+    "tenure_months",
+    "annual_interest_rate",
+    "credit_score",
+    "prior_delinquency_count_24m",
+    "bounced_payments_12m",
+    "existing_customer_flag",
+    "kyc_complete_flag",
+    "has_collateral_flag",
+    "collateral_value",
+    "residence_type",
+    "city_tier",
+    "historical_engine",
+    "historical_decision",
+    "historical_risk_band",
+    "historical_score",
+    "historical_risk_probability",
+    "historical_explanation",
+    "defaulted_flag",
+    "approval_outcome",
+]
 
 
 def _choice(rng: np.random.Generator, values, probs=None, size=None):
@@ -22,6 +66,79 @@ def _weighted_choice(rng: np.random.Generator, mapping: dict[str, float]) -> str
     weights = np.array(list(mapping.values()), dtype=float)
     weights = weights / weights.sum()
     return str(rng.choice(values, p=weights))
+
+
+def format_entity_id(prefix: str, value: int) -> str:
+    return f"{prefix}{value:04d}"
+
+
+def _extract_numeric_suffix(value: object, prefix: str) -> int | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    match = re.search(rf"{prefix}\s*0*(\d+)$", str(value).strip(), flags=re.IGNORECASE)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def next_entity_id(df: pd.DataFrame, column_name: str, prefix: str) -> str:
+    if column_name not in df.columns or df.empty:
+        return format_entity_id(prefix, 1)
+
+    existing = [_extract_numeric_suffix(value, prefix) for value in df[column_name].tolist()]
+    max_value = max((value for value in existing if value is not None), default=0)
+    return format_entity_id(prefix, max_value + 1)
+
+
+def branch_employee_options() -> dict[str, list[str]]:
+    return {branch_id: employee_ids[:] for branch_id, employee_ids in EMPLOYEE_BRANCH_MAP.items()}
+
+
+def _assign_branch_and_employee(row_number: int) -> tuple[str, str]:
+    branch_id = ALL_BRANCH_IDS[(row_number - 1) % len(ALL_BRANCH_IDS)]
+    employee_pool = EMPLOYEE_BRANCH_MAP[branch_id]
+    employee_id = employee_pool[((row_number - 1) // len(ALL_BRANCH_IDS)) % len(employee_pool)]
+    return branch_id, employee_id
+
+
+def _normalize_identifier_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column_name, prefix in ID_PATTERNS.items():
+        if column_name in out.columns:
+            out[column_name] = [
+                format_entity_id(prefix, numeric) if numeric is not None else ""
+                for numeric in (_extract_numeric_suffix(value, prefix) for value in out[column_name])
+            ]
+    return out
+
+
+def ensure_history_schema(df: pd.DataFrame) -> pd.DataFrame:
+    out = _normalize_identifier_columns(df)
+
+    if "branch_id" not in out.columns or "employee_id" not in out.columns:
+        branch_ids: list[str] = []
+        employee_ids: list[str] = []
+        for row_number in range(1, len(out) + 1):
+            branch_id, employee_id = _assign_branch_and_employee(row_number)
+            branch_ids.append(branch_id)
+            employee_ids.append(employee_id)
+        if "branch_id" not in out.columns:
+            out["branch_id"] = branch_ids
+        if "employee_id" not in out.columns:
+            out["employee_id"] = employee_ids
+
+    if "historical_engine" not in out.columns:
+        out["historical_engine"] = "Rule-Based Decision Engine"
+
+    if "approval_outcome" not in out.columns and "historical_decision" in out.columns:
+        out["approval_outcome"] = out["historical_decision"].isin(["Approve", "Approve with Conditions"]).astype(int)
+
+    for column_name in HISTORY_COLUMNS:
+        if column_name not in out.columns:
+            out[column_name] = pd.NA
+
+    out = out[HISTORY_COLUMNS]
+    return out
 
 
 def _sample_profile(rng: np.random.Generator) -> dict[str, object]:
@@ -219,6 +336,7 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
     rule_engine = RuleBasedDecisionEngine()
 
     for i in range(1, n_rows + 1):
+        branch_id, employee_id = _assign_branch_and_employee(i)
         profile = _sample_profile(rng)
         credit = _sample_credit_behavior(
             rng,
@@ -237,8 +355,10 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
         )
 
         app = CreditApplication(
-            loan_id=f"LN{i:05d}",
-            applicant_id=f"AP{i:05d}",
+            loan_id=format_entity_id("LN", i),
+            applicant_id=format_entity_id("AP", i),
+            employee_id=employee_id,
+            branch_id=branch_id,
             applicant_name=f"Applicant {i}",
             age=int(profile["age"]),
             monthly_income=float(profile["monthly_income"]),
@@ -278,6 +398,7 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
         rows.append(
             {
                 **app.to_dict(),
+                "historical_engine": decision.engine_name,
                 "historical_decision": decision.decision,
                 "historical_risk_band": decision.risk_band,
                 "historical_score": decision.score,
@@ -288,14 +409,16 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
             }
         )
 
-    df = pd.DataFrame(rows)
+    df = ensure_history_schema(pd.DataFrame(rows))
     df.to_csv(path, index=False)
     return df
 
 
 def load_or_create_data(path: Path = DATA_PATH, n_rows: int = 800) -> pd.DataFrame:
     if path.exists():
-        return pd.read_csv(path)
+        df = ensure_history_schema(pd.read_csv(path))
+        df.to_csv(path, index=False)
+        return df
     return generate_synthetic_dataset(path=path, n_rows=n_rows)
 
 
@@ -304,6 +427,8 @@ def build_application_from_row(row: pd.Series) -> CreditApplication:
     return CreditApplication(
         loan_id=str(payload.get("loan_id", "")),
         applicant_id=str(payload.get("applicant_id", "")),
+        employee_id=str(payload.get("employee_id", "")),
+        branch_id=str(payload.get("branch_id", "")),
         applicant_name=str(payload.get("applicant_name", "")),
         age=int(payload.get("age", 30)),
         monthly_income=float(payload.get("monthly_income", 0)),
@@ -324,3 +449,25 @@ def build_application_from_row(row: pd.Series) -> CreditApplication:
         residence_type=str(payload.get("residence_type", "Rented")),
         city_tier=str(payload.get("city_tier", "Tier 1")),
     )
+
+
+def append_assessment_to_history(
+    app: CreditApplication,
+    output: EngineOutput,
+    path: Path = DATA_PATH,
+) -> pd.DataFrame:
+    existing_df = load_or_create_data(path)
+    row = {
+        **app.to_dict(),
+        "historical_engine": output.engine_name,
+        "historical_decision": output.decision,
+        "historical_risk_band": output.risk_band,
+        "historical_score": output.score,
+        "historical_risk_probability": output.risk_probability,
+        "historical_explanation": " | ".join(output.top_negative_reasons[:2] + output.top_positive_reasons[:2]),
+        "defaulted_flag": pd.NA,
+        "approval_outcome": int(output.decision in {"Approve", "Approve with Conditions"}),
+    }
+    updated_df = ensure_history_schema(pd.concat([existing_df, pd.DataFrame([row])], ignore_index=True))
+    updated_df.to_csv(path, index=False)
+    return updated_df
