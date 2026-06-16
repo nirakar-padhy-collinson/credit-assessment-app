@@ -573,12 +573,7 @@ textarea {
 [data-testid="stSelectbox"] [data-baseweb="select"] > div,
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
     min-height: 58px !important;
-    height: 58px !important;
     box-sizing: border-box;
-    display: flex !important;
-    align-items: center !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
 }
 
 [data-testid="stNumberInput"],
@@ -625,8 +620,12 @@ textarea {
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
 [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    height: auto !important;
     padding-left: 0.85rem !important;
     padding-right: 0.85rem !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+    overflow: visible !important;
 }
 
 [data-testid="stMultiSelect"] label[data-testid="stWidgetLabel"],
@@ -639,24 +638,37 @@ textarea {
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] [role="combobox"],
 [data-testid="stSelectbox"] [data-baseweb="select"] [role="combobox"] {
-    display: flex !important;
-    align-items: center !important;
-    min-height: 100% !important;
-    height: 100% !important;
+    display: block !important;
+    min-height: 1.5rem !important;
+    height: auto !important;
     line-height: 1.4 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: visible !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="select"] [role="combobox"] > *,
+[data-testid="stSelectbox"] [data-baseweb="select"] [role="combobox"] > * {
+    min-height: auto !important;
 }
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] span {
-    display: inline-block;
+    display: inline-block !important;
     line-height: 1.4 !important;
-    min-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
+    min-height: auto !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    transform: none !important;
+    vertical-align: middle !important;
 }
 
 [data-testid="stMultiSelect"] [data-baseweb="select"] [aria-hidden="true"],
 [data-testid="stSelectbox"] [data-baseweb="select"] [aria-hidden="true"] {
-    line-height: 1.5 !important;
+    display: inline-block !important;
+    line-height: 1.4 !important;
+    min-height: auto !important;
+    transform: none !important;
+    vertical-align: middle !important;
 }
 
 label[data-testid="stWidgetLabel"] p {

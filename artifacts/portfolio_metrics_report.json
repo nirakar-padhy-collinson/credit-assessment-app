@@ -1,0 +1,425 @@
+{
+  "applications": 804,
+  "approval_mix": {
+    "Approve": 0.5659,
+    "Approve with Conditions": 0.2015,
+    "Decline": 0.1269,
+    "Manual Review": 0.1057
+  },
+  "auc": 0.7357,
+  "default_rate": 0.0609,
+  "avg_risk_probability": 0.1404,
+  "drift_psi": {
+    "monthly_income": 0.0545,
+    "credit_score": 0.0405,
+    "existing_monthly_obligations": 0.0183,
+    "requested_loan_amount": 0.0492
+  },
+  "branch_quality": [
+    {
+      "branch_id": "BR0002",
+      "applications": 402,
+      "approval_rate": 0.7711442786069652,
+      "avg_score": 79.17164179104478,
+      "avg_risk_probability": 0.13705273631840795,
+      "observed_default_rate": 0.06467661691542288,
+      "risk_adjusted_approval": 0.6654568451275958
+    },
+    {
+      "branch_id": "BR0001",
+      "applications": 402,
+      "approval_rate": 0.763681592039801,
+      "avg_score": 77.79601990049751,
+      "avg_risk_probability": 0.14384179104477612,
+      "observed_default_rate": 0.05721393034825871,
+      "risk_adjusted_approval": 0.65383226405287
+    }
+  ],
+  "calibration": [
+    {
+      "applications": 161,
+      "avg_predicted_pd": 0.03,
+      "observed_default_rate": 0.018633540372670808
+    },
+    {
+      "applications": 161,
+      "avg_predicted_pd": 0.03892298136645963,
+      "observed_default_rate": 0.018633540372670808
+    },
+    {
+      "applications": 160,
+      "avg_predicted_pd": 0.081453125,
+      "observed_default_rate": 0.05625
+    },
+    {
+      "applications": 161,
+      "avg_predicted_pd": 0.15757080745341615,
+      "observed_default_rate": 0.037267080745341616
+    },
+    {
+      "applications": 161,
+      "avg_predicted_pd": 0.3939229813664596,
+      "observed_default_rate": 0.17391304347826086
+    }
+  ],
+  "fairness_proxy": [
+    {
+      "proxy_attribute": "employment_type",
+      "segment": "Contract",
+      "applications": 112,
+      "approval_rate": 0.6517857142857143,
+      "avg_risk_probability": 0.2110892857142857,
+      "observed_default_rate": 0.044642857142857144
+    },
+    {
+      "proxy_attribute": "employment_type",
+      "segment": "Professional",
+      "applications": 126,
+      "approval_rate": 0.8333333333333334,
+      "avg_risk_probability": 0.10358809523809523,
+      "observed_default_rate": 0.023809523809523808
+    },
+    {
+      "proxy_attribute": "employment_type",
+      "segment": "Salaried",
+      "applications": 424,
+      "approval_rate": 0.7806603773584906,
+      "avg_risk_probability": 0.12986367924528303,
+      "observed_default_rate": 0.06367924528301887
+    },
+    {
+      "proxy_attribute": "employment_type",
+      "segment": "Self-Employed",
+      "applications": 142,
+      "approval_rate": 0.7605633802816901,
+      "avg_risk_probability": 0.14903732394366198,
+      "observed_default_rate": 0.09859154929577464
+    },
+    {
+      "proxy_attribute": "city_tier",
+      "segment": "Tier 1",
+      "applications": 367,
+      "approval_rate": 0.7683923705722071,
+      "avg_risk_probability": 0.13948828337874658,
+      "observed_default_rate": 0.07356948228882834
+    },
+    {
+      "proxy_attribute": "city_tier",
+      "segment": "Tier 2",
+      "applications": 279,
+      "approval_rate": 0.7455197132616488,
+      "avg_risk_probability": 0.14313225806451613,
+      "observed_default_rate": 0.04659498207885305
+    },
+    {
+      "proxy_attribute": "city_tier",
+      "segment": "Tier 3",
+      "applications": 158,
+      "approval_rate": 0.8037974683544303,
+      "avg_risk_probability": 0.13793354430379748,
+      "observed_default_rate": 0.056962025316455694
+    },
+    {
+      "proxy_attribute": "residence_type",
+      "segment": "Family",
+      "applications": 175,
+      "approval_rate": 0.7714285714285715,
+      "avg_risk_probability": 0.144872,
+      "observed_default_rate": 0.05142857142857143
+    },
+    {
+      "proxy_attribute": "residence_type",
+      "segment": "Owned",
+      "applications": 262,
+      "approval_rate": 0.7709923664122137,
+      "avg_risk_probability": 0.12545992366412215,
+      "observed_default_rate": 0.04961832061068702
+    },
+    {
+      "proxy_attribute": "residence_type",
+      "segment": "Rented",
+      "applications": 367,
+      "approval_rate": 0.7629427792915532,
+      "avg_risk_probability": 0.1490367847411444,
+      "observed_default_rate": 0.07356948228882834
+    }
+  ],
+  "dataset_version": "credit-demo-v2",
+  "champion_challenger_sample": [
+    {
+      "loan_id": "LN0001",
+      "applicant_id": "AP0001",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Approve with Conditions",
+      "rule_score": 65.0,
+      "ml_score": 84.8,
+      "rule_risk_probability": 0.19,
+      "ml_risk_probability": 0.1524
+    },
+    {
+      "loan_id": "LN0002",
+      "applicant_id": "AP0002",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.8,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0223
+    },
+    {
+      "loan_id": "LN0003",
+      "applicant_id": "AP0003",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Approve",
+      "rule_score": 78.0,
+      "ml_score": 94.2,
+      "rule_risk_probability": 0.1127,
+      "ml_risk_probability": 0.0584
+    },
+    {
+      "loan_id": "LN0004",
+      "applicant_id": "AP0004",
+      "recorded_decision": "Manual Review",
+      "rule_decision": "Manual Review",
+      "ml_decision": "Decline",
+      "rule_score": 53.0,
+      "ml_score": 64.0,
+      "rule_risk_probability": 0.29,
+      "ml_risk_probability": 0.36
+    },
+    {
+      "loan_id": "LN0005",
+      "applicant_id": "AP0005",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 94.0,
+      "ml_score": 90.8,
+      "rule_risk_probability": 0.05,
+      "ml_risk_probability": 0.0922
+    },
+    {
+      "loan_id": "LN0006",
+      "applicant_id": "AP0006",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 96.3,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0367
+    },
+    {
+      "loan_id": "LN0007",
+      "applicant_id": "AP0007",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.4,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0258
+    },
+    {
+      "loan_id": "LN0008",
+      "applicant_id": "AP0008",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 93.0,
+      "ml_score": 97.4,
+      "rule_risk_probability": 0.0533,
+      "ml_risk_probability": 0.0265
+    },
+    {
+      "loan_id": "LN0009",
+      "applicant_id": "AP0009",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.6,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0243
+    },
+    {
+      "loan_id": "LN0010",
+      "applicant_id": "AP0010",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.6,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0242
+    },
+    {
+      "loan_id": "LN0011",
+      "applicant_id": "AP0011",
+      "recorded_decision": "Decline",
+      "rule_decision": "Decline",
+      "ml_decision": "Decline",
+      "rule_score": 34.0,
+      "ml_score": 64.0,
+      "rule_risk_probability": 0.4545,
+      "ml_risk_probability": 0.36
+    },
+    {
+      "loan_id": "LN0012",
+      "applicant_id": "AP0012",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.3,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0273
+    },
+    {
+      "loan_id": "LN0013",
+      "applicant_id": "AP0013",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 83.0,
+      "ml_score": 96.6,
+      "rule_risk_probability": 0.0893,
+      "ml_risk_probability": 0.0336
+    },
+    {
+      "loan_id": "LN0014",
+      "applicant_id": "AP0014",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Manual Review",
+      "rule_score": 78.0,
+      "ml_score": 75.5,
+      "rule_risk_probability": 0.1127,
+      "ml_risk_probability": 0.2445
+    },
+    {
+      "loan_id": "LN0015",
+      "applicant_id": "AP0015",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.9,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0214
+    },
+    {
+      "loan_id": "LN0016",
+      "applicant_id": "AP0016",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 95.0,
+      "ml_score": 95.5,
+      "rule_risk_probability": 0.0467,
+      "ml_risk_probability": 0.0446
+    },
+    {
+      "loan_id": "LN0017",
+      "applicant_id": "AP0017",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 97.9,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0212
+    },
+    {
+      "loan_id": "LN0018",
+      "applicant_id": "AP0018",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 96.0,
+      "ml_score": 97.1,
+      "rule_risk_probability": 0.0433,
+      "ml_risk_probability": 0.0292
+    },
+    {
+      "loan_id": "LN0019",
+      "applicant_id": "AP0019",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Approve",
+      "rule_score": 76.0,
+      "ml_score": 97.2,
+      "rule_risk_probability": 0.122,
+      "ml_risk_probability": 0.0278
+    },
+    {
+      "loan_id": "LN0020",
+      "applicant_id": "AP0020",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Approve with Conditions",
+      "rule_score": 87.0,
+      "ml_score": 96.3,
+      "rule_risk_probability": 0.0733,
+      "ml_risk_probability": 0.0365
+    },
+    {
+      "loan_id": "LN0021",
+      "applicant_id": "AP0021",
+      "recorded_decision": "Decline",
+      "rule_decision": "Decline",
+      "ml_decision": "Decline",
+      "rule_score": 17.0,
+      "ml_score": 64.0,
+      "rule_risk_probability": 0.5523,
+      "ml_risk_probability": 0.36
+    },
+    {
+      "loan_id": "LN0022",
+      "applicant_id": "AP0022",
+      "recorded_decision": "Approve with Conditions",
+      "rule_decision": "Approve with Conditions",
+      "ml_decision": "Approve",
+      "rule_score": 68.0,
+      "ml_score": 92.3,
+      "rule_risk_probability": 0.166,
+      "ml_risk_probability": 0.0766
+    },
+    {
+      "loan_id": "LN0023",
+      "applicant_id": "AP0023",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 100.0,
+      "ml_score": 96.3,
+      "rule_risk_probability": 0.03,
+      "ml_risk_probability": 0.0371
+    },
+    {
+      "loan_id": "LN0024",
+      "applicant_id": "AP0024",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 98.0,
+      "ml_score": 97.2,
+      "rule_risk_probability": 0.0367,
+      "ml_risk_probability": 0.0283
+    },
+    {
+      "loan_id": "LN0025",
+      "applicant_id": "AP0025",
+      "recorded_decision": "Approve",
+      "rule_decision": "Approve",
+      "ml_decision": "Approve",
+      "rule_score": 82.0,
+      "ml_score": 96.3,
+      "rule_risk_probability": 0.094,
+      "ml_risk_probability": 0.0367
+    }
+  ]
+}

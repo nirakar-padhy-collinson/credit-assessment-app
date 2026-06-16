@@ -20,9 +20,15 @@ from utils.helpers import (
     clamp,
     compute_ltv,
     decision_from_probability,
+    documentation_status,
+    fulfillment_status,
     safe_divide,
     step_from_decision,
 )
+from utils.reason_codes import reason_code_for_factor
+
+
+APP_DIR = Path(__file__).resolve().parents[1]
 
 
 class MLDecisionEngine:
@@ -30,6 +36,8 @@ class MLDecisionEngine:
 
     def __init__(self, model_dir: str = "artifacts"):
         self.model_dir = Path(model_dir)
+        if not self.model_dir.is_absolute():
+            self.model_dir = APP_DIR / self.model_dir
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.pipeline_path = self.model_dir / "credit_pipeline.joblib"
         self.feature_columns = [
@@ -50,15 +58,16 @@ class MLDecisionEngine:
         ]
         self.categorical_features = ["employment_type", "loan_purpose", "residence_type", "city_tier"]
         self.pipeline: Optional[Pipeline] = None
+        self.bad_rate: float = 0.08
         self.fallback_reason = "No trained model loaded; using lightweight surrogate behaviour."
 
     def _prepare_frame(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
         out["emi"] = out.apply(lambda r: calculate_emi(r["requested_loan_amount"], r["annual_interest_rate"], int(r["tenure_months"])), axis=1)
         out["foir"] = (out["existing_monthly_obligations"] + out["emi"]) / out["monthly_income"].replace(0, np.nan)
-        out["foir"] = out["foir"].fillna(0)
+        out["foir"] = out["foir"].replace([np.inf, -np.inf], np.nan).fillna(9.99)
         out["loan_to_income"] = out["requested_loan_amount"] / (out["monthly_income"].replace(0, np.nan) * 12)
-        out["loan_to_income"] = out["loan_to_income"].fillna(0)
+        out["loan_to_income"] = out["loan_to_income"].replace([np.inf, -np.inf], np.nan).fillna(9.99)
         out["ltv_filled"] = np.where(
             (out["has_collateral_flag"] == 1) & (out["collateral_value"] > 0),
             out["requested_loan_amount"] / out["collateral_value"],
@@ -90,18 +99,35 @@ class MLDecisionEngine:
 
         pipeline = Pipeline([
             ("preprocessor", preprocessor),
-            ("model", LogisticRegression(max_iter=500, class_weight="balanced")),
+            ("model", LogisticRegression(max_iter=500, C=0.8)),
         ])
         pipeline.fit(X, y)
         self.pipeline = pipeline
-        joblib.dump(pipeline, self.pipeline_path)
+        self.bad_rate = float(y.mean())
+        joblib.dump(
+            {
+                "pipeline": pipeline,
+                "bad_rate": self.bad_rate,
+                "feature_columns": self.feature_columns,
+            },
+            self.pipeline_path,
+        )
 
         return {"rows_trained": float(len(df)), "bad_rate": float(y.mean())}
 
     def load(self) -> bool:
         if self.pipeline_path.exists():
-            self.pipeline = joblib.load(self.pipeline_path)
-            return True
+            try:
+                artifact = joblib.load(self.pipeline_path)
+                if isinstance(artifact, dict) and "pipeline" in artifact:
+                    self.pipeline = artifact["pipeline"]
+                    self.bad_rate = float(artifact.get("bad_rate", self.bad_rate))
+                else:
+                    self.pipeline = artifact
+                return True
+            except Exception:
+                self.pipeline = None
+                return False
         return False
 
     def _fallback_explanation(self, app: CreditApplication, risk_probability: float) -> List[Dict[str, float]]:
@@ -117,9 +143,9 @@ class MLDecisionEngine:
 
     def evaluate(self, app: CreditApplication) -> EngineOutput:
         emi = calculate_emi(app.requested_loan_amount, app.annual_interest_rate, app.tenure_months)
-        foir = safe_divide(app.existing_monthly_obligations + emi, app.monthly_income)
+        foir = safe_divide(app.existing_monthly_obligations + emi, app.monthly_income, default=9.99)
         ltv = compute_ltv(app.requested_loan_amount, app.has_collateral_flag, app.collateral_value)
-        loan_to_income = safe_divide(app.requested_loan_amount, app.monthly_income * 12)
+        loan_to_income = safe_divide(app.requested_loan_amount, app.monthly_income * 12, default=9.99)
 
         if self.pipeline is None:
             self.load()
@@ -128,7 +154,8 @@ class MLDecisionEngine:
         enriched = self._prepare_frame(row)
 
         if self.pipeline is not None:
-            prob = float(self.pipeline.predict_proba(enriched[self.feature_columns])[0, 1])
+            raw_prob = float(self.pipeline.predict_proba(enriched[self.feature_columns])[0, 1])
+            prob = clamp((0.75 * raw_prob) + (0.25 * self.bad_rate), 0.01, 0.65)
             model = self.pipeline.named_steps["model"]
             pre = self.pipeline.named_steps["preprocessor"]
             transformed = pre.transform(enriched[self.feature_columns])
@@ -156,6 +183,7 @@ class MLDecisionEngine:
                         if item["signed_contribution"] > 0
                         else f"{item['feature']} improved the model view of the application."
                     ),
+                    reason_code=reason_code_for_factor(item["feature"]),
                 )
                 for item in feature_importance
             ]
@@ -179,10 +207,66 @@ class MLDecisionEngine:
                     impact_direction="Negative",
                     points=round(item["relative_importance"] * 10, 2),
                     description=f"{item['feature']} is one of the strongest drivers in the current risk estimate.",
+                    reason_code=reason_code_for_factor(item["feature"]),
                 )
                 for item in feature_importance
             ]
             notes = [self.fallback_reason]
+
+        hard_stops: list[tuple[str, str, float]] = []
+        if app.monthly_income <= 0:
+            prob = max(prob, 0.70)
+            hard_stops.append((
+                "Income validation",
+                "Monthly income must be greater than zero before an application can pass affordability screening.",
+                18.0,
+            ))
+        if app.requested_loan_amount <= 0:
+            prob = max(prob, 0.70)
+            hard_stops.append((
+                "Loan amount validation",
+                "Requested loan amount must be greater than zero before a credit decision can be issued.",
+                18.0,
+            ))
+        if app.has_collateral_flag and app.collateral_value <= 0:
+            prob = max(prob, 0.30)
+            hard_stops.append((
+                "Collateral validation",
+                "Collateral is marked available but collateral value is missing, so secured-lending comfort is not available.",
+                8.0,
+            ))
+        if foir > 0.75:
+            prob = max(prob, 0.36)
+            hard_stops.append((
+                "Affordability hard stop",
+                f"FOIR at {foir:.0%} breaches the prudent affordability hard-stop threshold.",
+                12.0,
+            ))
+        if app.credit_score < 600:
+            prob = max(prob, 0.42)
+            hard_stops.append((
+                "Bureau hard stop",
+                f"Credit score of {app.credit_score} is below the minimum automated approval threshold.",
+                12.0,
+            ))
+        if app.prior_delinquency_count_24m >= 4 or app.bounced_payments_12m >= 5:
+            prob = max(prob, 0.42)
+            hard_stops.append((
+                "Repayment conduct hard stop",
+                "Severe recent repayment conduct requires decline or senior underwriter review.",
+                12.0,
+            ))
+
+        factor_contributions.extend(
+            FactorContribution(
+                factor=factor,
+                impact_direction="Negative",
+                points=points,
+                description=description,
+                reason_code=reason_code_for_factor(factor),
+            )
+            for factor, description, points in hard_stops
+        )
 
         score = round(clamp((1 - prob) * 100, 1, 99), 1)
         risk_band = band_from_probability(prob)
@@ -208,4 +292,6 @@ class MLDecisionEngine:
             feature_importance=feature_importance,
             confidence=round(max(prob, 1 - prob), 4),
             notes=notes,
+            documentation_status=documentation_status(app.kyc_complete_flag),
+            fulfillment_status=fulfillment_status(decision, app.kyc_complete_flag),
         )

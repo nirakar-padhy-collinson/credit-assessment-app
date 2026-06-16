@@ -7,7 +7,15 @@
   "risk_probability": {
     "score_to_probability_multiplier": 0.55,
     "min": 0.03,
-    "max": 0.65
+    "max": 0.65,
+    "calibration_anchors": [
+      {"score": 0, "probability": 0.65},
+      {"score": 40, "probability": 0.42},
+      {"score": 55, "probability": 0.27},
+      {"score": 70, "probability": 0.15},
+      {"score": 85, "probability": 0.08},
+      {"score": 100, "probability": 0.03}
+    ]
   },
   "risk_bands": [
     {

@@ -8,9 +8,12 @@ import pandas as pd
 
 from models.contracts import CreditApplication, EngineOutput
 from scoring.rule_engine import RuleBasedDecisionEngine
+from utils.helpers import safe_divide
 
 
-DATA_PATH = Path("data/historical_loan_applications.csv")
+APP_DIR = Path(__file__).resolve().parents[1]
+DATA_PATH = APP_DIR / "data" / "historical_loan_applications.csv"
+DATASET_VERSION = "credit-demo-v2"
 EMPLOYEE_BRANCH_MAP = {
     "BR0001": [f"EM{i:04d}" for i in range(1, 6)],
     "BR0002": [f"EM{i:04d}" for i in range(6, 11)],
@@ -55,6 +58,50 @@ HISTORY_COLUMNS = [
     "defaulted_flag",
     "approval_outcome",
 ]
+NUMERIC_COLUMNS = [
+    "age",
+    "monthly_income",
+    "years_in_current_job",
+    "existing_monthly_obligations",
+    "requested_loan_amount",
+    "tenure_months",
+    "annual_interest_rate",
+    "credit_score",
+    "prior_delinquency_count_24m",
+    "bounced_payments_12m",
+    "existing_customer_flag",
+    "kyc_complete_flag",
+    "has_collateral_flag",
+    "collateral_value",
+    "historical_score",
+    "historical_risk_probability",
+    "defaulted_flag",
+    "approval_outcome",
+]
+
+
+def validate_history_schema(df: pd.DataFrame) -> list[str]:
+    issues: list[str] = []
+    missing = [column for column in HISTORY_COLUMNS if column not in df.columns]
+    if missing:
+        issues.append("Missing columns: " + ", ".join(missing))
+
+    for column in NUMERIC_COLUMNS:
+        if column in df.columns:
+            numeric = pd.to_numeric(df[column], errors="coerce")
+            if numeric.isna().all() and df[column].notna().any():
+                issues.append(f"Column {column} must be numeric.")
+
+    if "monthly_income" in df.columns and (pd.to_numeric(df["monthly_income"], errors="coerce") < 0).any():
+        issues.append("Monthly income cannot be negative.")
+    if "requested_loan_amount" in df.columns and (pd.to_numeric(df["requested_loan_amount"], errors="coerce") < 0).any():
+        issues.append("Requested loan amount cannot be negative.")
+    if "credit_score" in df.columns:
+        scores = pd.to_numeric(df["credit_score"], errors="coerce")
+        if ((scores < 300) | (scores > 900)).any():
+            issues.append("Credit score must be between 300 and 900.")
+
+    return issues
 
 
 def _choice(rng: np.random.Generator, values, probs=None, size=None):
@@ -328,7 +375,146 @@ def _sample_loan_terms(
     }
 
 
-def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: int = 42) -> pd.DataFrame:
+def golden_demo_applications(start_index: int = 1) -> list[CreditApplication]:
+    scenarios = [
+        {
+            "applicant_name": "Golden - Clean Salaried Approval",
+            "age": 38,
+            "monthly_income": 240000.0,
+            "employment_type": "Salaried",
+            "years_in_current_job": 8.0,
+            "existing_monthly_obligations": 18000.0,
+            "requested_loan_amount": 450000.0,
+            "loan_purpose": "Personal",
+            "tenure_months": 36,
+            "annual_interest_rate": 10.5,
+            "credit_score": 820,
+            "prior_delinquency_count_24m": 0,
+            "bounced_payments_12m": 0,
+            "existing_customer_flag": 1,
+            "kyc_complete_flag": 1,
+            "has_collateral_flag": 0,
+            "collateral_value": 0.0,
+            "residence_type": "Owned",
+            "city_tier": "Tier 1",
+        },
+        {
+            "applicant_name": "Golden - KYC Conditional Approval",
+            "age": 35,
+            "monthly_income": 185000.0,
+            "employment_type": "Professional",
+            "years_in_current_job": 6.0,
+            "existing_monthly_obligations": 15000.0,
+            "requested_loan_amount": 360000.0,
+            "loan_purpose": "Education",
+            "tenure_months": 36,
+            "annual_interest_rate": 11.0,
+            "credit_score": 795,
+            "prior_delinquency_count_24m": 0,
+            "bounced_payments_12m": 0,
+            "existing_customer_flag": 1,
+            "kyc_complete_flag": 0,
+            "has_collateral_flag": 0,
+            "collateral_value": 0.0,
+            "residence_type": "Owned",
+            "city_tier": "Tier 1",
+        },
+        {
+            "applicant_name": "Golden - Affordability Review",
+            "age": 31,
+            "monthly_income": 85000.0,
+            "employment_type": "Self-Employed",
+            "years_in_current_job": 3.5,
+            "existing_monthly_obligations": 42000.0,
+            "requested_loan_amount": 950000.0,
+            "loan_purpose": "Business Support",
+            "tenure_months": 36,
+            "annual_interest_rate": 16.5,
+            "credit_score": 695,
+            "prior_delinquency_count_24m": 1,
+            "bounced_payments_12m": 1,
+            "existing_customer_flag": 0,
+            "kyc_complete_flag": 1,
+            "has_collateral_flag": 1,
+            "collateral_value": 1200000.0,
+            "residence_type": "Rented",
+            "city_tier": "Tier 2",
+        },
+        {
+            "applicant_name": "Golden - Conduct Decline",
+            "age": 29,
+            "monthly_income": 120000.0,
+            "employment_type": "Contract",
+            "years_in_current_job": 1.0,
+            "existing_monthly_obligations": 24000.0,
+            "requested_loan_amount": 650000.0,
+            "loan_purpose": "Personal",
+            "tenure_months": 48,
+            "annual_interest_rate": 18.0,
+            "credit_score": 575,
+            "prior_delinquency_count_24m": 5,
+            "bounced_payments_12m": 6,
+            "existing_customer_flag": 0,
+            "kyc_complete_flag": 1,
+            "has_collateral_flag": 0,
+            "collateral_value": 0.0,
+            "residence_type": "Rented",
+            "city_tier": "Tier 2",
+        },
+    ]
+
+    applications: list[CreditApplication] = []
+    for offset, scenario in enumerate(scenarios):
+        branch_id, employee_id = _assign_branch_and_employee(start_index + offset)
+        applications.append(
+            CreditApplication(
+                loan_id=format_entity_id("LN", start_index + offset),
+                applicant_id=format_entity_id("AP", start_index + offset),
+                employee_id=employee_id,
+                branch_id=branch_id,
+                **scenario,
+            )
+        )
+    return applications
+
+
+def _default_probability(app: CreditApplication, decision: EngineOutput, rng: np.random.Generator) -> float:
+    emi_proxy = safe_divide(app.existing_monthly_obligations + decision.emi, app.monthly_income, default=1.4)
+    latent_risk = (
+        0.03
+        + max(0, 700 - app.credit_score) / 900
+        + min(app.prior_delinquency_count_24m, 6) * 0.045
+        + min(app.bounced_payments_12m, 8) * 0.025
+        + max(0, emi_proxy - 0.45) * 0.35
+        + max(0, decision.loan_to_income - 0.65) * 0.08
+        - (0.035 if app.existing_customer_flag else 0.0)
+        - (0.025 if app.has_collateral_flag and decision.ltv is not None and decision.ltv <= 0.75 else 0.0)
+        + rng.normal(0, 0.025)
+    )
+    return float(np.clip(latent_risk, 0.01, 0.78))
+
+
+def _history_row(app: CreditApplication, decision: EngineOutput, defaulted_flag: object) -> dict[str, object]:
+    return {
+        **app.to_dict(),
+        "historical_engine": decision.engine_name,
+        "historical_decision": decision.decision,
+        "historical_risk_band": decision.risk_band,
+        "historical_score": decision.score,
+        "historical_risk_probability": decision.risk_probability,
+        "historical_explanation": " | ".join(decision.top_negative_reasons[:2] + decision.top_positive_reasons[:2]),
+        "defaulted_flag": defaulted_flag,
+        "approval_outcome": int(decision.decision in {"Approve", "Approve with Conditions"}),
+    }
+
+
+def generate_synthetic_dataset(
+    path: Path = DATA_PATH,
+    n_rows: int = 800,
+    seed: int = 42,
+    include_golden: bool = True,
+) -> pd.DataFrame:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
 
@@ -380,34 +566,16 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
             city_tier=str(profile["city_tier"]),
         )
         decision = rule_engine.evaluate(app)
-        prob = decision.risk_probability
 
-        defaulted_prob = np.clip(
-            prob
-            + max(0, 690 - app.credit_score) / 1400
-            + app.prior_delinquency_count_24m * 0.035
-            + app.bounced_payments_12m * 0.018
-            - (0.04 if app.existing_customer_flag else 0)
-            - (0.03 if app.has_collateral_flag else 0),
-            0.01,
-            0.75,
-        )
+        defaulted_prob = _default_probability(app, decision, rng)
         defaulted_flag = int(rng.random() < defaulted_prob)
-        approval_outcome = int(decision.decision in {"Approve", "Approve with Conditions"})
+        rows.append(_history_row(app, decision, defaulted_flag))
 
-        rows.append(
-            {
-                **app.to_dict(),
-                "historical_engine": decision.engine_name,
-                "historical_decision": decision.decision,
-                "historical_risk_band": decision.risk_band,
-                "historical_score": decision.score,
-                "historical_risk_probability": decision.risk_probability,
-                "historical_explanation": " | ".join(decision.top_negative_reasons[:2] + decision.top_positive_reasons[:2]),
-                "defaulted_flag": defaulted_flag,
-                "approval_outcome": approval_outcome,
-            }
-        )
+    if include_golden:
+        for app in golden_demo_applications(n_rows + 1):
+            decision = rule_engine.evaluate(app)
+            defaulted_flag = int(rng.random() < _default_probability(app, decision, rng))
+            rows.append(_history_row(app, decision, defaulted_flag))
 
     df = ensure_history_schema(pd.DataFrame(rows))
     df.to_csv(path, index=False)
@@ -415,10 +583,9 @@ def generate_synthetic_dataset(path: Path = DATA_PATH, n_rows: int = 800, seed: 
 
 
 def load_or_create_data(path: Path = DATA_PATH, n_rows: int = 800) -> pd.DataFrame:
+    path = Path(path)
     if path.exists():
-        df = ensure_history_schema(pd.read_csv(path))
-        df.to_csv(path, index=False)
-        return df
+        return ensure_history_schema(pd.read_csv(path))
     return generate_synthetic_dataset(path=path, n_rows=n_rows)
 
 
@@ -456,6 +623,7 @@ def append_assessment_to_history(
     output: EngineOutput,
     path: Path = DATA_PATH,
 ) -> pd.DataFrame:
+    path = Path(path)
     existing_df = load_or_create_data(path)
     row = {
         **app.to_dict(),

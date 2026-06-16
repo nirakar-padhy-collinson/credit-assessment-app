@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 
-DEFAULT_RULE_ENGINE_CONFIG_PATH = Path("scoring/rule_engine_config.json")
+DEFAULT_RULE_ENGINE_CONFIG_PATH = Path(__file__).resolve().with_name("rule_engine_config.json")
 
 
 @lru_cache(maxsize=1)

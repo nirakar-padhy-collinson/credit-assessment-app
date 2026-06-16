@@ -43,6 +43,7 @@ class FactorContribution:
     impact_direction: str
     points: float
     description: str
+    reason_code: str = ""
 
 
 @dataclass
@@ -63,6 +64,8 @@ class EngineOutput:
     feature_importance: List[Dict[str, Any]] = field(default_factory=list)
     confidence: Optional[float] = None
     notes: List[str] = field(default_factory=list)
+    documentation_status: str = "Ready for documentation"
+    fulfillment_status: str = "Ready for fulfillment"
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)

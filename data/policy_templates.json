@@ -1,0 +1,26 @@
+{
+  "small_bank_conservative": {
+    "max_auto_approve_foir": 0.45,
+    "manual_review_foir": 0.6,
+    "minimum_auto_approve_bureau_score": 700,
+    "minimum_any_approval_bureau_score": 620,
+    "kyc_required_for_disbursal": true,
+    "collateral_required_above_loan_to_income": 1.0
+  },
+  "nbfc_growth": {
+    "max_auto_approve_foir": 0.55,
+    "manual_review_foir": 0.7,
+    "minimum_auto_approve_bureau_score": 680,
+    "minimum_any_approval_bureau_score": 600,
+    "kyc_required_for_disbursal": true,
+    "collateral_required_above_loan_to_income": 1.25
+  },
+  "fintech_digital_prime": {
+    "max_auto_approve_foir": 0.5,
+    "manual_review_foir": 0.62,
+    "minimum_auto_approve_bureau_score": 720,
+    "minimum_any_approval_bureau_score": 640,
+    "kyc_required_for_disbursal": true,
+    "collateral_required_above_loan_to_income": 0.9
+  }
+}

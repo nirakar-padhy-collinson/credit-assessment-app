@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict
 
@@ -15,14 +16,15 @@ from utils.data_loader import (
     append_assessment_to_history,
     branch_employee_options,
     build_application_from_row,
-    generate_synthetic_dataset,
     load_or_create_data,
     next_entity_id,
+    validate_history_schema,
 )
 
 st.set_page_config(page_title="Credit Assessment Studio", layout="wide", initial_sidebar_state="expanded")
 
-DATA_FILE = Path("data/historical_loan_applications.csv")
+APP_DIR = Path(__file__).resolve().parent
+DATA_FILE = APP_DIR / "data" / "historical_loan_applications.csv"
 
 
 @st.cache_data(show_spinner=False)
@@ -32,7 +34,7 @@ def get_data(path_str: str) -> pd.DataFrame:
 
 @st.cache_resource(show_spinner=False)
 def get_ml_engine(df: pd.DataFrame) -> MLDecisionEngine:
-    engine = MLDecisionEngine(model_dir="artifacts")
+    engine = MLDecisionEngine(model_dir=str(APP_DIR / "artifacts"))
     if not engine.load():
         engine.train(df)
     return engine
@@ -105,6 +107,93 @@ def dataframe_height(row_count: int, *, max_rows_visible: int = 8) -> int:
 RISK_BAND_ORDER = ["Low Risk", "Moderate Risk", "Elevated Risk", "High Risk"]
 RISK_BAND_COLORS = ["#5D8C63", "#C59A49", "#D67F45", "#C44F45"]
 DECISION_COLORS = ["#2B77C9", "#9E6A34", "#5A7BA7", "#C44F45"]
+CREDIT_SCENARIOS: dict[str, dict[str, object]] = {
+    "Custom Intake": {},
+    "Strong Approval": {
+        "applicant_name": "Scenario - Strong Approval",
+        "age": 38,
+        "monthly_income": 240000.0,
+        "employment_type": "Salaried",
+        "years_in_current_job": 8.0,
+        "existing_monthly_obligations": 18000.0,
+        "requested_loan_amount": 450000.0,
+        "loan_purpose": "Personal",
+        "tenure_months": 36,
+        "annual_interest_rate": 10.5,
+        "credit_score": 820,
+        "prior_delinquency_count_24m": 0,
+        "bounced_payments_12m": 0,
+        "existing_customer_flag": 1,
+        "kyc_complete_flag": 1,
+        "has_collateral_flag": 0,
+        "collateral_value": 0.0,
+        "residence_type": "Owned",
+        "city_tier": "Tier 1",
+    },
+    "KYC Hold": {
+        "applicant_name": "Scenario - KYC Hold",
+        "age": 35,
+        "monthly_income": 185000.0,
+        "employment_type": "Professional",
+        "years_in_current_job": 6.0,
+        "existing_monthly_obligations": 15000.0,
+        "requested_loan_amount": 360000.0,
+        "loan_purpose": "Education",
+        "tenure_months": 36,
+        "annual_interest_rate": 11.0,
+        "credit_score": 795,
+        "prior_delinquency_count_24m": 0,
+        "bounced_payments_12m": 0,
+        "existing_customer_flag": 1,
+        "kyc_complete_flag": 0,
+        "has_collateral_flag": 0,
+        "collateral_value": 0.0,
+        "residence_type": "Owned",
+        "city_tier": "Tier 1",
+    },
+    "Affordability Review": {
+        "applicant_name": "Scenario - Affordability Review",
+        "age": 31,
+        "monthly_income": 85000.0,
+        "employment_type": "Self-Employed",
+        "years_in_current_job": 3.5,
+        "existing_monthly_obligations": 42000.0,
+        "requested_loan_amount": 950000.0,
+        "loan_purpose": "Business Support",
+        "tenure_months": 36,
+        "annual_interest_rate": 16.5,
+        "credit_score": 695,
+        "prior_delinquency_count_24m": 1,
+        "bounced_payments_12m": 1,
+        "existing_customer_flag": 0,
+        "kyc_complete_flag": 1,
+        "has_collateral_flag": 1,
+        "collateral_value": 1200000.0,
+        "residence_type": "Rented",
+        "city_tier": "Tier 2",
+    },
+    "Conduct Decline": {
+        "applicant_name": "Scenario - Conduct Decline",
+        "age": 29,
+        "monthly_income": 120000.0,
+        "employment_type": "Contract",
+        "years_in_current_job": 1.0,
+        "existing_monthly_obligations": 24000.0,
+        "requested_loan_amount": 650000.0,
+        "loan_purpose": "Personal",
+        "tenure_months": 48,
+        "annual_interest_rate": 18.0,
+        "credit_score": 575,
+        "prior_delinquency_count_24m": 5,
+        "bounced_payments_12m": 6,
+        "existing_customer_flag": 0,
+        "kyc_complete_flag": 1,
+        "has_collateral_flag": 0,
+        "collateral_value": 0.0,
+        "residence_type": "Rented",
+        "city_tier": "Tier 2",
+    },
+}
 
 
 def styled_chart(chart: alt.Chart, *, height: int, padding: dict | None = None) -> alt.Chart:
@@ -177,6 +266,273 @@ def render_driver_item(text: str, tone: str):
     )
 
 
+def confidence_label(confidence: float | None) -> str:
+    if confidence is None:
+        return "Confidence unavailable"
+    if confidence >= 0.82:
+        return "High confidence"
+    if confidence >= 0.68:
+        return "Medium confidence"
+    return "Needs review"
+
+
+def render_status_badges(items: list[tuple[str, str]]) -> None:
+    badge_html = " ".join(
+        f"<span style='display:inline-block;margin:0 0.35rem 0.45rem 0;padding:0.35rem 0.65rem;border-radius:999px;"
+        f"background:{color};color:#fff;font-size:0.78rem;font-weight:700;'>{label}</span>"
+        for label, color in items
+    )
+    st.markdown(badge_html, unsafe_allow_html=True)
+
+
+def credit_governance_badges(app: CreditApplication, output: EngineOutput) -> list[tuple[str, str]]:
+    green = "#3E7D57"
+    amber = "#C59A49"
+    red = "#C44F45"
+    blue = "#2E6896"
+    badges = [
+        ("KYC Verified" if app.kyc_complete_flag else "KYC Hold", green if app.kyc_complete_flag else amber),
+        ("Affordability Passed" if output.foir <= 0.50 else "Affordability Review", green if output.foir <= 0.50 else amber),
+        ("Bureau Passed" if app.credit_score >= 680 else "Bureau Hard Stop", green if app.credit_score >= 680 else red),
+        ("Conduct Clear" if app.prior_delinquency_count_24m < 4 and app.bounced_payments_12m < 5 else "Conduct Hard Stop", green if app.prior_delinquency_count_24m < 4 and app.bounced_payments_12m < 5 else red),
+        (output.documentation_status, blue if "Ready" in output.documentation_status else amber),
+        (output.fulfillment_status, blue if "Ready" in output.fulfillment_status else amber if "hold" in output.fulfillment_status.lower() else red),
+        (confidence_label(output.confidence), blue if output.confidence is None or output.confidence >= 0.68 else amber),
+    ]
+    if app.has_collateral_flag:
+        badges.append(("Collateral Validated" if app.collateral_value > 0 else "Collateral Value Missing", green if app.collateral_value > 0 else red))
+    return badges
+
+
+def credit_alerts(app: CreditApplication, output: EngineOutput) -> list[str]:
+    alerts: list[str] = []
+    if output.foir > 0.50:
+        alerts.append(f"FOIR is {output.foir:.1%}; banker should review affordability before disbursal.")
+    if app.credit_score < 680:
+        alerts.append(f"Credit score is {app.credit_score}; bureau quality is a material decision driver.")
+    if not app.kyc_complete_flag:
+        alerts.append("KYC is incomplete; approval cannot move to clean fulfillment.")
+    if app.prior_delinquency_count_24m >= 4 or app.bounced_payments_12m >= 5:
+        alerts.append("Recent repayment conduct triggers senior review or decline discipline.")
+    if output.engine_name == "Machine Learning Decision Engine" and output.confidence is not None and output.confidence < 0.68:
+        alerts.append("Model confidence is moderate; compare with policy rules before action.")
+    return alerts
+
+
+def render_decision_journey(output: EngineOutput) -> None:
+    journey = pd.DataFrame(
+        [
+            {"Stage": "1. Intake", "Outcome": "Borrower and facility details captured"},
+            {"Stage": "2. Eligibility", "Outcome": output.documentation_status},
+            {"Stage": "3. Risk Signal", "Outcome": f"{output.risk_band} at {output.risk_probability:.1%} PD"},
+            {"Stage": "4. Decision", "Outcome": output.decision},
+            {"Stage": "5. Next Action", "Outcome": output.recommended_next_step},
+        ]
+    )
+    render_dataframe_block(journey, max_rows_visible=5)
+
+
+def credit_banker_brief(app: CreditApplication, output: EngineOutput) -> str:
+    positive = output.top_positive_reasons[0] if output.top_positive_reasons else "No dominant supportive driver surfaced."
+    adverse = output.top_negative_reasons[0] if output.top_negative_reasons else "No material adverse driver surfaced."
+    return (
+        f"{app.applicant_id} is recommended for **{output.decision}** with {output.risk_band.lower()} and "
+        f"{output.risk_probability:.1%} estimated risk probability. Primary support: {positive} "
+        f"Primary caution: {adverse} Recommended banker action: {output.recommended_next_step}"
+    )
+
+
+def render_credit_structured_brief(app: CreditApplication, output: EngineOutput) -> None:
+    watchouts = credit_alerts(app, output) or ["No material compliance, KYC, affordability, or conduct watchout is active."]
+    brief = pd.DataFrame(
+        [
+            {"Section": "Executive Summary", "Brief": f"{app.applicant_id} is recommended for {output.decision} with {output.risk_band.lower()} and {output.risk_probability:.1%} estimated risk probability."},
+            {"Section": "Key Rationale", "Brief": (output.top_positive_reasons or ["No dominant supportive driver surfaced."])[0]},
+            {"Section": "Recommended Banker Action", "Brief": output.recommended_next_step},
+            {"Section": "Compliance Watchouts", "Brief": " ".join(watchouts[:2])},
+        ]
+    )
+    render_dataframe_block(brief, max_rows_visible=4)
+
+
+def credit_decision_packet_html(app: CreditApplication, output: EngineOutput) -> str:
+    positives = "".join(f"<li>{item}</li>" for item in output.top_positive_reasons[:3]) or "<li>No dominant supportive driver surfaced.</li>"
+    negatives = "".join(f"<li>{item}</li>" for item in output.top_negative_reasons[:3]) or "<li>No material adverse driver surfaced.</li>"
+    alerts = "".join(f"<li>{item}</li>" for item in credit_alerts(app, output)) or "<li>No material active alert.</li>"
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Credit Decision Packet {app.loan_id}</title>
+<style>body{{font-family:Arial,sans-serif;line-height:1.45;color:#1f2933;margin:32px}} .kpi{{display:inline-block;margin:6px 12px 6px 0;padding:10px 14px;border:1px solid #d8dee7;border-radius:8px}}</style></head>
+<body>
+<h1>Credit Decision Packet</h1>
+<p><strong>Loan:</strong> {app.loan_id} | <strong>Applicant:</strong> {app.applicant_id} | <strong>Engine:</strong> {output.engine_name}</p>
+<div class="kpi"><strong>Decision</strong><br>{output.decision}</div>
+<div class="kpi"><strong>Risk Band</strong><br>{output.risk_band}</div>
+<div class="kpi"><strong>Risk Probability</strong><br>{output.risk_probability:.1%}</div>
+<div class="kpi"><strong>Score</strong><br>{output.score:.1f}</div>
+<h2>AI Banker Brief</h2><p>{credit_banker_brief(app, output)}</p>
+<h2>Recommended Action</h2><p>{output.recommended_next_step}</p>
+<h2>Supportive Drivers</h2><ul>{positives}</ul>
+<h2>Adverse Drivers / Watchouts</h2><ul>{negatives}{alerts}</ul>
+<h2>Governance Status</h2><p>{output.documentation_status}; {output.fulfillment_status}</p>
+</body></html>"""
+
+
+def render_credit_decision_packet_download(app: CreditApplication, output: EngineOutput) -> None:
+    st.download_button(
+        "Download Decision Packet",
+        data=credit_decision_packet_html(app, output).encode("utf-8"),
+        file_name=f"{app.loan_id}_credit_decision_packet.html",
+        mime="text/html",
+        use_container_width=True,
+    )
+
+
+def render_credit_banker_notes(app: CreditApplication, output: EngineOutput) -> None:
+    with st.expander("Policy Override / Banker Notes", expanded=False):
+        override_requested = st.checkbox("Override requested", key=f"credit_override_{app.loan_id}")
+        escalation_reason = st.selectbox(
+            "Escalation reason",
+            ["None", "Customer exception", "Policy clarification", "Documentation pending", "Senior underwriter review"],
+            key=f"credit_escalation_{app.loan_id}",
+        )
+        banker_note = st.text_area("Banker note", key=f"credit_note_{app.loan_id}", placeholder="Add the business rationale, documents pending, or escalation context.")
+        if override_requested or escalation_reason != "None" or banker_note:
+            st.info("Workflow note captured in session for the banker review pack.")
+
+
+def render_credit_similar_cases(app: CreditApplication, df: pd.DataFrame | None) -> None:
+    if df is None or df.empty:
+        return
+    with st.expander("Similar Case Comparison", expanded=False):
+        candidates = df.copy()
+        candidates["similarity_gap"] = (
+            (candidates["credit_score"] - app.credit_score).abs() / 100
+            + (candidates["monthly_income"] - app.monthly_income).abs() / max(app.monthly_income, 1)
+            + (candidates["requested_loan_amount"] - app.requested_loan_amount).abs() / max(app.requested_loan_amount, 1)
+        )
+        similar = candidates.sort_values("similarity_gap").head(6)[
+            ["loan_id", "applicant_id", "loan_purpose", "historical_decision", "historical_score", "historical_risk_probability", "credit_score", "monthly_income"]
+        ].copy()
+        similar["historical_risk_probability"] = similar["historical_risk_probability"].map(lambda x: f"{float(x):.1%}")
+        similar["monthly_income"] = similar["monthly_income"].map(fmt_currency)
+        render_dataframe_block(similar, max_rows_visible=6)
+
+
+def render_credit_model_health(df: pd.DataFrame) -> None:
+    st.markdown("### Model & Policy Health")
+    rows = len(df)
+    avg_pd = df["historical_risk_probability"].mean() if rows else 0
+    data_quality = "Passed" if rows and df[["loan_id", "historical_decision", "historical_score"]].notna().all().all() else "Review"
+    h1, h2, h3, h4 = st.columns(4, gap="medium")
+    with h1:
+        render_stat_card("Model Health", "Stable", "Latest artifact loaded")
+    with h2:
+        render_stat_card("Policy Version", "credit-policy-v2", "Active ruleset")
+    with h3:
+        render_stat_card("Data Quality", data_quality, f"{rows:,} records")
+    with h4:
+        render_stat_card("Avg PD", f"{avg_pd:.1%}", "Portfolio signal")
+
+
+def render_credit_task_queues(df: pd.DataFrame, key_prefix: str = "credit") -> None:
+    st.markdown("### Banker Task Queues")
+    queues = [
+        ("Manual Review Queue", df[df["historical_decision"].eq("Manual Review")]),
+        ("KYC / Conditional Queue", df[df["historical_decision"].eq("Approve with Conditions")]),
+        ("High FOIR Proxy Queue", df[(df["existing_monthly_obligations"] / df["monthly_income"].replace(0, pd.NA)).fillna(0) > 0.35]),
+        ("High-Risk Decline Queue", df[df["historical_decision"].eq("Decline")]),
+    ]
+    qcols = st.columns(4, gap="medium")
+    for col, (label, queue_df) in zip(qcols, queues):
+        with col:
+            render_stat_card(label, f"{len(queue_df):,}", "Open records")
+    selected_queue = st.selectbox("Open Queue", [label for label, _ in queues], key=f"{key_prefix}_task_queue")
+    queue_lookup = {label: qdf for label, qdf in queues}
+    queue_view = queue_lookup[selected_queue].head(8)[
+        ["loan_id", "applicant_id", "branch_id", "requested_loan_amount", "historical_decision", "historical_risk_probability"]
+    ].copy()
+    if queue_view.empty:
+        st.success("No records currently require this queue action.")
+    else:
+        queue_view["requested_loan_amount"] = queue_view["requested_loan_amount"].map(fmt_currency)
+        queue_view["historical_risk_probability"] = queue_view["historical_risk_probability"].map(lambda x: f"{float(x):.1%}")
+        render_dataframe_block(queue_view, max_rows_visible=8)
+
+
+def render_credit_suite_command(df: pd.DataFrame) -> None:
+    st.markdown('<div class="section-title">Banking Decisioning Suite</div>', unsafe_allow_html=True)
+    st.caption("A command landing for credit risk decisioning and portfolio operations.")
+    render_credit_model_health(df)
+    render_section_gap()
+    render_credit_task_queues(df, key_prefix="credit_suite")
+    render_section_gap()
+    st.markdown("### Suite Capabilities")
+    capability_df = pd.DataFrame(
+        [
+            {"Module": "Credit Decisioning", "Capability": "Underwriting assessment, policy explainability, what-if simulation, and audit packet export."},
+            {"Module": "Growth Decisioning", "Capability": "Next-best-action prioritization, eligibility controls, relationship context, and activation queues."},
+            {"Module": "Governance Layer", "Capability": "Champion/challenger comparison, decision traceability, model health, and banker notes."},
+        ]
+    )
+    render_dataframe_block(capability_df, max_rows_visible=3)
+
+
+def render_champion_challenger(app: CreditApplication, engines: Dict[str, object]) -> None:
+    st.markdown("### Champion vs Challenger")
+    rows = []
+    for name, engine in engines.items():
+        out = engine.evaluate(app)
+        rows.append(
+            {
+                "Engine": name.replace(" Decision Engine", ""),
+                "Decision": out.decision,
+                "Risk Band": out.risk_band,
+                "Score": out.score,
+                "Risk Probability": out.risk_probability,
+                "Confidence": confidence_label(out.confidence),
+                "Top Driver": (out.top_negative_reasons or out.top_positive_reasons or ["No dominant driver"])[0],
+            }
+        )
+    comparison = pd.DataFrame(rows)
+    comparison["Risk Probability"] = comparison["Risk Probability"].map(lambda x: f"{float(x):.1%}")
+    render_dataframe_block(comparison, max_rows_visible=2)
+    if comparison["Decision"].nunique() > 1:
+        st.warning("Rules and ML disagree on this case. Use this as an underwriter review trigger.")
+    else:
+        st.success("Rules and ML are aligned on the decision.")
+
+
+def render_credit_what_if(app: CreditApplication, engines: Dict[str, object], selected_engine: str) -> None:
+    with st.expander("What-if Simulator", expanded=False):
+        st.caption("Adjust high-impact levers to see how the current engine changes the outcome. Simulated cases are not saved.")
+        c1, c2, c3, c4 = st.columns(4, gap="medium")
+        with c1:
+            sim_amount = st.number_input("Loan Amount", min_value=10000.0, value=float(app.requested_loan_amount), step=25000.0, format="%.0f", key=f"credit_sim_amount_{app.loan_id}")
+        with c2:
+            sim_tenure = st.selectbox("Tenure", [12, 24, 36, 48, 60, 72], index=[12, 24, 36, 48, 60, 72].index(app.tenure_months) if app.tenure_months in [12, 24, 36, 48, 60, 72] else 2, key=f"credit_sim_tenure_{app.loan_id}")
+        with c3:
+            sim_income = st.number_input("Monthly Income", min_value=0.0, value=float(app.monthly_income), step=5000.0, format="%.0f", key=f"credit_sim_income_{app.loan_id}")
+        with c4:
+            sim_score = st.number_input("Credit Score", min_value=300, max_value=900, value=int(app.credit_score), key=f"credit_sim_score_{app.loan_id}")
+        simulated_app = replace(
+            app,
+            requested_loan_amount=float(sim_amount),
+            tenure_months=int(sim_tenure),
+            monthly_income=float(sim_income),
+            credit_score=int(sim_score),
+        )
+        simulated_output = engines[selected_engine].evaluate(simulated_app)
+        w1, w2, w3, w4 = st.columns(4, gap="medium")
+        with w1:
+            render_stat_card("Simulated Decision", simulated_output.decision, "Current engine")
+        with w2:
+            render_stat_card("Simulated Risk", f"{simulated_output.risk_probability:.1%}", "Estimated PD")
+        with w3:
+            render_stat_card("Simulated FOIR", f"{simulated_output.foir:.1%}", "Affordability")
+        with w4:
+            render_stat_card("Simulated Score", f"{simulated_output.score:.1f}", "Decision score")
+
+
 def render_header():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     portfolio_health = "Portfolio-ready analytics"
@@ -220,13 +576,13 @@ def render_workflow_guide():
                 </div>
                 <div class="workflow-step">
                     <div class="workflow-step-number">02</div>
-                    <div class="workflow-step-title">Case Review</div>
-                    <p>Benchmark a live case against historical applications and stored outcomes.</p>
+                    <div class="workflow-step-title">Portfolio Overview</div>
+                    <p>Monitor approval mix, risk concentration, and lending patterns at a glance.</p>
                 </div>
                 <div class="workflow-step">
                     <div class="workflow-step-number">03</div>
-                    <div class="workflow-step-title">Portfolio Overview</div>
-                    <p>Monitor approval mix, risk concentration, and lending patterns at a glance.</p>
+                    <div class="workflow-step-title">Decision Traceability</div>
+                    <p>Preserve engine rationale and policy signals for governance-ready decisioning.</p>
                 </div>
             </div>
         </div>
@@ -312,9 +668,9 @@ def application_form(df: pd.DataFrame, defaults: dict | None = None, form_key: s
 
         r5c1, r5c2 = st.columns(2, gap="medium")
         with r5c1:
-            existing_customer_flag = st.selectbox("Existing Customer", [1, 0], format_func=lambda x: "Yes" if x == 1 else "No", index=0 if int(defaults.get("existing_customer_flag", 0)) == 1 else 1, help="Indicates whether the borrower already has a relationship with the institution.")
+            existing_customer_flag = st.toggle("Existing Customer", value=int(defaults.get("existing_customer_flag", 0)) == 1, help="Indicates whether the borrower already has a relationship with the institution.")
         with r5c2:
-            kyc_complete_flag = st.selectbox("KYC Complete", [1, 0], format_func=lambda x: "Yes" if x == 1 else "No", index=0 if int(defaults.get("kyc_complete_flag", 1)) == 1 else 1, help="Shows whether Know Your Customer verification is complete.")
+            kyc_complete_flag = st.toggle("KYC Complete", value=int(defaults.get("kyc_complete_flag", 1)) == 1, help="Shows whether Know Your Customer verification is complete.")
 
         r6c1, r6c2 = st.columns(2, gap="medium")
         with r6c1:
@@ -342,7 +698,7 @@ def application_form(df: pd.DataFrame, defaults: dict | None = None, form_key: s
 
         r10c1, r10c2 = st.columns(2, gap="medium")
         with r10c1:
-            has_collateral_flag = st.selectbox("Collateral Available", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No", index=1 if int(defaults.get("has_collateral_flag", 0)) == 1 else 0, help="Indicates whether the facility is backed by any pledged collateral.")
+            has_collateral_flag = st.toggle("Collateral Available", value=int(defaults.get("has_collateral_flag", 0)) == 1, help="Indicates whether the facility is backed by any pledged collateral.")
         with r10c2:
             collateral_value = st.number_input("Collateral Value", min_value=0.0, value=float(defaults.get("collateral_value", 0.0)), step=10000.0, format="%.0f", help="Only relevant for secured applications.")
 
@@ -382,13 +738,35 @@ def application_form(df: pd.DataFrame, defaults: dict | None = None, form_key: s
     return app, submitted
 
 
-def render_engine_output(output: EngineOutput):
+def render_engine_output(
+    output: EngineOutput,
+    app: CreditApplication | None = None,
+    engines: Dict[str, object] | None = None,
+    selected_engine: str | None = None,
+    history_df: pd.DataFrame | None = None,
+):
     is_ml_output = output.engine_name == "Machine Learning Decision Engine"
 
     st.markdown('<div class="section-title">Assessment Summary</div>', unsafe_allow_html=True)
     st.markdown(f"### Decision Outcome")
     st.markdown(decision_badge(output.decision), unsafe_allow_html=True)
     st.markdown(f"<div class='small-note' style='margin-top:0.7rem;'>Engine: {output.engine_name}</div>", unsafe_allow_html=True)
+
+    if app is not None:
+        st.markdown("### AI Banker Brief")
+        render_credit_structured_brief(app, output)
+        render_credit_decision_packet_download(app, output)
+        st.markdown("### Governance & Trust Signals")
+        render_status_badges(credit_governance_badges(app, output))
+        alerts = credit_alerts(app, output)
+        if alerts:
+            for alert in alerts:
+                st.warning(alert)
+        else:
+            st.success("No material policy, documentation, or affordability alert is active for this assessment.")
+        st.markdown("### Decision Journey")
+        render_decision_journey(output)
+
     m1, m2 = st.columns(2, gap="medium")
     with m1:
         render_stat_card("Score", f"{output.score:.1f}", "Overall credit assessment score from the selected engine.")
@@ -431,83 +809,105 @@ def render_engine_output(output: EngineOutput):
     render_section_gap()
     render_result_explainer(output)
 
-    render_section_gap()
-    st.markdown("### Factor Contributions")
-    contrib_df = pd.DataFrame([
-        {"Factor": c.factor, "Direction": c.impact_direction, "Points": c.points, "Description": c.description}
-        for c in output.factor_contributions
-    ])
-    render_dataframe_block(
-        contrib_df,
-        column_config={
-            "Factor": st.column_config.TextColumn(width="medium"),
-            "Direction": st.column_config.TextColumn(width="small"),
-            "Points": st.column_config.NumberColumn(width="small", format="%.0f"),
-            "Description": st.column_config.TextColumn(width="large"),
-        },
-    )
+    if app is not None and engines is not None:
+        render_section_gap()
+        render_champion_challenger(app, engines)
+        if selected_engine is not None:
+            render_section_gap()
+            render_credit_what_if(app, engines, selected_engine)
+        render_credit_similar_cases(app, history_df)
+        render_credit_banker_notes(app, output)
 
     render_section_gap()
-    if is_ml_output:
-        st.markdown("### Model Insight")
-        feat_df = pd.DataFrame(output.feature_importance)
-        if not feat_df.empty:
-            feat_df["feature"] = feat_df["feature"].astype(str)
-            metric_col = "relative_importance" if "relative_importance" in feat_df.columns else feat_df.columns[1]
-            chart = alt.Chart(feat_df.head(10)).mark_bar(cornerRadiusTopLeft=6, cornerRadiusBottomLeft=6).encode(
-                x=alt.X(f"{metric_col}:Q", title="Relative Importance"),
-                y=alt.Y("feature:N", sort='-x', title="Feature"),
-                tooltip=list(feat_df.columns),
-            )
-            chart = styled_chart(chart, height=320)
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Model insight is not available for this prediction.")
-    else:
-        st.markdown("### Rule Rationale")
-        rationale_df = pd.DataFrame([
-            {
-                "Rule Area": c.factor,
-                "Assessment": c.description,
-                "Impact": "Supportive" if c.impact_direction == "Positive" else "Adverse",
-                "Points": c.points,
-            }
-            for c in output.factor_contributions[:8]
+    with st.expander("Detailed Factor Contributions", expanded=False):
+        contrib_df = pd.DataFrame([
+            {"Factor": c.factor, "Direction": c.impact_direction, "Points": c.points, "Description": c.description}
+            for c in output.factor_contributions
         ])
-        st.caption("This view shows the strongest policy-style rules that influenced the recommendation.")
         render_dataframe_block(
-            rationale_df,
+            contrib_df,
             column_config={
-                "Rule Area": st.column_config.TextColumn(width="medium"),
-                "Assessment": st.column_config.TextColumn(width="large"),
-                "Impact": st.column_config.TextColumn(width="small"),
+                "Factor": st.column_config.TextColumn(width="medium"),
+                "Direction": st.column_config.TextColumn(width="small"),
                 "Points": st.column_config.NumberColumn(width="small", format="%.0f"),
+                "Description": st.column_config.TextColumn(width="large"),
             },
         )
+
+    render_section_gap()
+    with st.expander("Model / Rule Detail", expanded=False):
+        if is_ml_output:
+            st.markdown("### Model Insight")
+            feat_df = pd.DataFrame(output.feature_importance)
+            if not feat_df.empty:
+                feat_df["feature"] = feat_df["feature"].astype(str)
+                metric_col = "relative_importance" if "relative_importance" in feat_df.columns else feat_df.columns[1]
+                chart = alt.Chart(feat_df.head(10)).mark_bar(cornerRadiusTopLeft=6, cornerRadiusBottomLeft=6).encode(
+                    x=alt.X(f"{metric_col}:Q", title="Relative Importance"),
+                    y=alt.Y("feature:N", sort='-x', title="Feature"),
+                    tooltip=list(feat_df.columns),
+                )
+                chart = styled_chart(chart, height=320)
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("Model insight is not available for this prediction.")
+        else:
+            st.markdown("### Rule Rationale")
+            rationale_df = pd.DataFrame([
+                {
+                    "Rule Area": c.factor,
+                    "Assessment": c.description,
+                    "Impact": "Supportive" if c.impact_direction == "Positive" else "Adverse",
+                    "Points": c.points,
+                }
+                for c in output.factor_contributions[:8]
+            ])
+            st.caption("This view shows the strongest policy-style rules that influenced the recommendation.")
+            render_dataframe_block(
+                rationale_df,
+                column_config={
+                    "Rule Area": st.column_config.TextColumn(width="medium"),
+                    "Assessment": st.column_config.TextColumn(width="large"),
+                    "Impact": st.column_config.TextColumn(width="small"),
+                    "Points": st.column_config.NumberColumn(width="small", format="%.0f"),
+                },
+            )
 
 
 def new_application_tab(df: pd.DataFrame, engines: Dict[str, object], selected_engine: str):
     st.markdown('<div class="section-title">New Assessment</div>', unsafe_allow_html=True)
     st.caption("Enter the applicant and facility details below to generate a credit recommendation and supporting rationale.")
     st.markdown(f'<div class="section-banner">Active engine: <strong>{selected_engine}</strong></div>', unsafe_allow_html=True)
-    saved_output = st.session_state.get("latest_assessment_output")
-    saved_engine = st.session_state.get("latest_assessment_engine")
-    if saved_output is not None and saved_engine == selected_engine:
-        st.success("Latest assessment saved to application history and included in portfolio analytics.")
-        render_engine_output(saved_output)
-        render_section_gap()
-
-    app, submitted = application_form(df, form_key="new_application_form")
+    scenario_name = st.selectbox(
+        "Scenario Library",
+        list(CREDIT_SCENARIOS.keys()),
+        help="Use a guided scenario to quickly show approval, KYC, affordability, or conduct outcomes.",
+    )
+    scenario_defaults = CREDIT_SCENARIOS[scenario_name]
+    if scenario_name != "Custom Intake":
+        st.caption(f"Loaded scenario: {scenario_name}. You can still adjust any field before running the assessment.")
+    app, submitted = application_form(df, defaults=scenario_defaults, form_key=f"new_application_form_{scenario_name}")
     if submitted:
         output = engines[selected_engine].evaluate(app)
         append_assessment_to_history(app, output, DATA_FILE)
         st.session_state["latest_assessment_output"] = output
         st.session_state["latest_assessment_engine"] = selected_engine
+        st.session_state["latest_assessment_app"] = app
         st.cache_data.clear()
         st.cache_resource.clear()
         st.rerun()
 
+    saved_output = st.session_state.get("latest_assessment_output")
+    saved_engine = st.session_state.get("latest_assessment_engine")
+    saved_app = st.session_state.get("latest_assessment_app")
+    if saved_output is not None and saved_engine == selected_engine:
+        render_section_gap()
+        st.success("Latest assessment saved to application history and included in portfolio analytics.")
+        render_engine_output(saved_output, saved_app, engines, selected_engine, df)
 
+
+# Review workspace is hidden from the primary UI for product simplicity, but retained
+# for future audit, explainability, and model/rule comparison use.
 def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], selected_engine: str):
     st.markdown('<div class="section-title">Case Review</div>', unsafe_allow_html=True)
     st.caption("Search the existing application history to compare a prior decision with the current engine output.")
@@ -530,8 +930,13 @@ def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], se
 
     working_df = df.copy()
     if uploaded is not None:
-        working_df = pd.read_csv(uploaded)
-        st.success("Application history updated for this session.")
+        uploaded_df = pd.read_csv(uploaded)
+        schema_issues = validate_history_schema(uploaded_df)
+        if schema_issues:
+            st.error("Uploaded CSV failed schema validation: " + " ".join(schema_issues))
+        else:
+            working_df = uploaded_df
+            st.success("Application history updated for this session.")
 
     if search_term:
         filtered = working_df[
@@ -592,7 +997,44 @@ def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], se
         )
 
         render_section_gap()
-        render_engine_output(current_output)
+        render_engine_output(current_output, app, engines, selected_engine, working_df)
+
+
+def render_credit_command_center(df: pd.DataFrame) -> None:
+    st.markdown("### Portfolio Command Center")
+    if df.empty:
+        st.info("No records match the current filters.")
+        return
+
+    manual_review_rate = df["historical_decision"].eq("Manual Review").mean()
+    high_risk_rate = df["historical_risk_band"].eq("High Risk").mean()
+    avg_pd = df["historical_risk_probability"].mean()
+    branch_review = (
+        df.groupby("branch_id")
+        .agg(review_rate=("historical_decision", lambda x: x.eq("Manual Review").mean()), volume=("loan_id", "count"))
+        .sort_values(["review_rate", "volume"], ascending=[False, False])
+        .head(1)
+    )
+    branch_msg = "No branch concentration detected."
+    if not branch_review.empty:
+        branch_id = branch_review.index[0]
+        branch_msg = f"{branch_id} has the highest manual-review concentration at {branch_review.iloc[0]['review_rate']:.1%}."
+
+    c1, c2, c3 = st.columns(3, gap="medium")
+    with c1:
+        render_stat_card("Manual Review Pressure", f"{manual_review_rate:.1%}", "Underwriter workload signal")
+    with c2:
+        render_stat_card("High-Risk Share", f"{high_risk_rate:.1%}", "Risk concentration")
+    with c3:
+        render_stat_card("Average PD", f"{avg_pd:.1%}", "Portfolio risk signal")
+
+    insights = [
+        branch_msg,
+        "Prioritize manual-review queues where risk band is elevated and ticket size is above portfolio average.",
+        "Use champion/challenger disagreement as a governance trigger before policy changes.",
+    ]
+    for insight in insights:
+        st.info(insight)
 
 
 def portfolio_overview_tab(df: pd.DataFrame):
@@ -634,6 +1076,11 @@ def portfolio_overview_tab(df: pd.DataFrame):
     if employee_ids:
         filtered = filtered[filtered["employee_id"].isin(employee_ids)]
 
+    render_credit_model_health(filtered)
+    render_section_gap()
+    render_credit_command_center(filtered)
+    render_credit_task_queues(filtered, key_prefix="credit_portfolio")
+    render_section_gap()
     render_metric_cards(filtered)
     render_section_gap()
 
@@ -846,25 +1293,10 @@ def sidebar_controls(df: pd.DataFrame):
     st.sidebar.markdown("## Decision Settings")
     st.sidebar.caption("Choose which decisioning engine should be used throughout the workspace.")
     selected_engine = st.sidebar.radio("Decision engine", ["Rule-Based Decision Engine", "Machine Learning Decision Engine"])
-    st.sidebar.caption("The selected engine is used in New Assessment and Case Review.")
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Portfolio Data")
-    if st.sidebar.button("Refresh sample portfolio", use_container_width=True, help="Rebuild the bundled sample application history used by the workspace."):
-        generate_synthetic_dataset(DATA_FILE, n_rows=800, seed=42)
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.rerun()
-    st.sidebar.download_button(
-        label="Download current application history",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="application_history.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+    st.sidebar.caption("The selected engine is used in New Assessment and Portfolio Overview.")
     st.sidebar.markdown("---")
     st.sidebar.info(
-        "This workspace supports three jobs: run a new decision, review an existing case, and monitor portfolio trends.\n\n"
+        "This workspace supports two primary jobs: run a new decision and monitor portfolio trends.\n\n"
         "All assessments intentionally exclude protected attributes from the underwriting inputs."
     )
     return selected_engine
@@ -878,11 +1310,13 @@ def main():
     engines = get_engines(df)
     render_workflow_guide()
 
-    tabs = st.tabs(["New Assessment", "Case Review", "Portfolio Overview"])
+    # Review workspace is retained in code for future audit and comparison use,
+    # but hidden from the primary UI to keep the product workflow focused.
+    tabs = st.tabs(["Suite Command", "New Assessment", "Portfolio Overview"])
     with tabs[0]:
-        new_application_tab(df, engines, selected_engine)
+        render_credit_suite_command(df)
     with tabs[1]:
-        historical_applications_tab(df, engines, selected_engine)
+        new_application_tab(df, engines, selected_engine)
     with tabs[2]:
         portfolio_overview_tab(df)
 

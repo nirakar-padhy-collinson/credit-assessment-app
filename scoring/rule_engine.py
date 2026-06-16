@@ -10,9 +10,13 @@ from utils.helpers import (
     clamp,
     compute_ltv,
     decision_from_probability,
+    documentation_status,
+    fulfillment_status,
+    risk_probability_from_score,
     safe_divide,
     step_from_decision,
 )
+from utils.reason_codes import reason_code_for_factor
 
 
 class RuleBasedDecisionEngine:
@@ -77,9 +81,9 @@ class RuleBasedDecisionEngine:
 
     def evaluate(self, app: CreditApplication) -> EngineOutput:
         emi = calculate_emi(app.requested_loan_amount, app.annual_interest_rate, app.tenure_months)
-        foir = safe_divide(app.existing_monthly_obligations + emi, app.monthly_income)
+        foir = safe_divide(app.existing_monthly_obligations + emi, app.monthly_income, default=9.99)
         ltv = compute_ltv(app.requested_loan_amount, app.has_collateral_flag, app.collateral_value)
-        loan_to_income = safe_divide(app.requested_loan_amount, app.monthly_income * 12)
+        loan_to_income = safe_divide(app.requested_loan_amount, app.monthly_income * 12, default=9.99)
 
         metrics = {
             "foir": foir,
@@ -99,20 +103,54 @@ class RuleBasedDecisionEngine:
                     impact_direction="Positive" if points >= 0 else "Negative",
                     points=round(points, 1),
                     description=description,
+                    reason_code=reason_code_for_factor(factor),
                 )
             )
 
         for rule in self.config["rules"].values():
             self._apply_rule(app, rule, context, add)
 
+        if app.monthly_income <= 0:
+            add(
+                "Income validation",
+                -80,
+                "Monthly income must be greater than zero before an application can pass affordability screening.",
+            )
+        if app.requested_loan_amount <= 0:
+            add(
+                "Loan amount validation",
+                -80,
+                "Requested loan amount must be greater than zero before a credit decision can be issued.",
+            )
+        if app.has_collateral_flag and app.collateral_value <= 0:
+            add(
+                "Collateral validation",
+                -18,
+                "Collateral is marked available but collateral value is missing, so secured-lending comfort is not available.",
+            )
+        if foir > 0.75:
+            add(
+                "Affordability hard stop",
+                -25,
+                f"FOIR at {foir:.0%} breaches the prudent affordability hard-stop threshold.",
+            )
+        if app.credit_score < 600:
+            add(
+                "Bureau hard stop",
+                -24,
+                f"Credit score of {app.credit_score} is below the minimum automated approval threshold.",
+            )
+        if app.prior_delinquency_count_24m >= 4 or app.bounced_payments_12m >= 5:
+            add(
+                "Repayment conduct hard stop",
+                -22,
+                "Severe recent repayment conduct requires decline or senior underwriter review.",
+            )
+
         score_bounds = self.config["score_bounds"]
         score = clamp(score, float(score_bounds["min"]), float(score_bounds["max"]))
         risk_cfg = self.config["risk_probability"]
-        risk_probability = clamp(
-            ((100 - score) / 100) * float(risk_cfg["score_to_probability_multiplier"]),
-            float(risk_cfg["min"]),
-            float(risk_cfg["max"]),
-        )
+        risk_probability = risk_probability_from_score(score, risk_cfg)
         risk_band = band_from_probability(risk_probability, self.config["risk_bands"])
         decision = decision_from_probability(risk_probability, app.kyc_complete_flag, self.config["decision_policy"])
         next_step = step_from_decision(decision, self.config["next_steps"])
@@ -137,4 +175,6 @@ class RuleBasedDecisionEngine:
             factor_contributions=ordered,
             confidence=round(max(0.55, 1 - risk_probability), 4),
             notes=["Rule weights and thresholds are loaded from scoring/rule_engine_config.json."],
+            documentation_status=documentation_status(app.kyc_complete_flag),
+            fulfillment_status=fulfillment_status(decision, app.kyc_complete_flag),
         )
