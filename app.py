@@ -906,12 +906,13 @@ def new_application_tab(df: pd.DataFrame, engines: Dict[str, object], selected_e
         render_engine_output(saved_output, saved_app, engines, selected_engine, df)
 
 
-# Review workspace is hidden from the primary UI for product simplicity, but retained
-# for future audit, explainability, and model/rule comparison use.
+# Review workspace supports governance, audit, explainability, and model/rule replay.
 def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], selected_engine: str):
-    st.markdown('<div class="section-title">Case Review</div>', unsafe_allow_html=True)
-    st.caption("Search the existing application history to compare a prior decision with the current engine output.")
-    st.markdown(f'<div class="section-banner">Comparison engine: <strong>{selected_engine}</strong></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Decision Review</div>', unsafe_allow_html=True)
+    st.caption(
+        "Review a saved credit decision, then replay the same application inputs through the current rule and ML engines."
+    )
+    st.markdown(f'<div class="section-banner">Active workspace engine: <strong>{selected_engine}</strong></div>', unsafe_allow_html=True)
 
     search_term = st.text_input(
         "Search by Applicant ID or Loan ID",
@@ -963,26 +964,60 @@ def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], se
             "Risk Probability": selected_row.get("historical_risk_probability", "N/A"),
             "Explanation": selected_row.get("historical_explanation", "N/A"),
         }
-        current_output = engines[selected_engine].evaluate(app)
+        rule_output = engines["Rule-Based Decision Engine"].evaluate(app)
+        ml_output = engines["Machine Learning Decision Engine"].evaluate(app)
 
-        st.markdown("### Recorded Decision vs Current Result")
-        st.caption("This compares the decision stored in the application history with the result produced by the currently selected engine.")
+        st.markdown("### Recorded Decision vs Current Engine Replay")
+        st.caption(
+            "Replay uses the same saved applicant inputs. It is a current-engine comparison, not a reconstruction of an older model artifact."
+        )
         compare_df = pd.DataFrame([
-            ["Decision", historical["Decision"], current_output.decision],
-            ["Risk Band", historical["Risk Band"], current_output.risk_band],
-            ["Score", historical["Score"], current_output.score],
-            ["Risk Probability", historical["Risk Probability"], current_output.risk_probability],
-            ["Explanation", historical["Explanation"], " | ".join(current_output.top_negative_reasons[:2] + current_output.top_positive_reasons[:2])],
-        ], columns=["Measure", "Recorded History", "Current Engine Result"])
+            ["Decision", historical["Decision"], rule_output.decision, ml_output.decision],
+            ["Risk Band", historical["Risk Band"], rule_output.risk_band, ml_output.risk_band],
+            ["Score", f"{float(historical['Score']):.1f}" if pd.notna(historical["Score"]) else "N/A", f"{rule_output.score:.1f}", f"{ml_output.score:.1f}"],
+            [
+                "Risk Probability",
+                f"{float(historical['Risk Probability']):.1%}" if pd.notna(historical["Risk Probability"]) else "N/A",
+                f"{rule_output.risk_probability:.1%}",
+                f"{ml_output.risk_probability:.1%}",
+            ],
+            ["Next Step", "Recorded in history", rule_output.recommended_next_step, ml_output.recommended_next_step],
+            [
+                "Primary Rationale",
+                historical["Explanation"],
+                " | ".join(rule_output.top_negative_reasons[:2] + rule_output.top_positive_reasons[:2]),
+                " | ".join(ml_output.top_negative_reasons[:2] + ml_output.top_positive_reasons[:2]),
+            ],
+        ], columns=["Measure", "Recorded History", "Current Rule Replay", "Current ML Replay"])
         render_dataframe_block(
             compare_df,
             max_rows_visible=8,
             column_config={
                 "Measure": st.column_config.TextColumn(width="small"),
                 "Recorded History": st.column_config.TextColumn(width="large"),
-                "Current Engine Result": st.column_config.TextColumn(width="large"),
+                "Current Rule Replay": st.column_config.TextColumn(width="large"),
+                "Current ML Replay": st.column_config.TextColumn(width="large"),
             },
         )
+
+        if historical["Decision"] != rule_output.decision or historical["Decision"] != ml_output.decision:
+            st.warning("At least one current engine replay differs from the recorded decision. Treat this as a policy/model review cue.")
+        else:
+            st.success("Recorded decision and current replays are directionally aligned.")
+
+        render_section_gap()
+        st.markdown("### Recorded Case Context")
+        context_df = pd.DataFrame(
+            [
+                {"Item": "Loan ID", "Value": selected_row.get("loan_id", "N/A")},
+                {"Item": "Applicant ID", "Value": selected_row.get("applicant_id", "N/A")},
+                {"Item": "Branch / Employee", "Value": f"{selected_row.get('branch_id', 'N/A')} / {selected_row.get('employee_id', 'N/A')}"},
+                {"Item": "Approval Outcome", "Value": "Approved path" if int(selected_row.get("approval_outcome", 0)) == 1 else "Not approved path"},
+                {"Item": "Observed Default", "Value": "Yes" if int(selected_row.get("defaulted_flag", 0)) == 1 else "No"},
+                {"Item": "Stored Explanation", "Value": historical["Explanation"]},
+            ]
+        )
+        render_dataframe_block(context_df, max_rows_visible=6)
 
         render_section_gap()
         st.markdown("### Original Application Details")
@@ -997,7 +1032,16 @@ def historical_applications_tab(df: pd.DataFrame, engines: Dict[str, object], se
         )
 
         render_section_gap()
-        render_engine_output(current_output, app, engines, selected_engine, working_df)
+        st.markdown("### Current Replay Drivers")
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown("#### Rule-Based Engine")
+            for item in rule_output.top_negative_reasons[:3] + rule_output.top_positive_reasons[:3]:
+                render_driver_item(item, "adverse" if item in rule_output.top_negative_reasons else "supportive")
+        with right:
+            st.markdown("#### Machine Learning Engine")
+            for item in ml_output.top_negative_reasons[:3] + ml_output.top_positive_reasons[:3]:
+                render_driver_item(item, "adverse" if item in ml_output.top_negative_reasons else "supportive")
 
 
 def render_credit_command_center(df: pd.DataFrame) -> None:
@@ -1293,7 +1337,7 @@ def sidebar_controls(df: pd.DataFrame):
     st.sidebar.markdown("## Decision Settings")
     st.sidebar.caption("Choose which decisioning engine should be used throughout the workspace.")
     selected_engine = st.sidebar.radio("Decision engine", ["Rule-Based Decision Engine", "Machine Learning Decision Engine"])
-    st.sidebar.caption("The selected engine is used in New Assessment and Portfolio Overview.")
+    st.sidebar.caption("The selected engine is used in New Assessment, Portfolio Overview, and Decision Review context.")
     st.sidebar.markdown("---")
     st.sidebar.info(
         "This workspace supports two primary jobs: run a new decision and monitor portfolio trends.\n\n"
@@ -1310,15 +1354,15 @@ def main():
     engines = get_engines(df)
     render_workflow_guide()
 
-    # Review workspace is retained in code for future audit and comparison use,
-    # but hidden from the primary UI to keep the product workflow focused.
-    tabs = st.tabs(["Suite Command", "New Assessment", "Portfolio Overview"])
+    tabs = st.tabs(["Suite Command", "New Assessment", "Portfolio Overview", "Decision Review"])
     with tabs[0]:
         render_credit_suite_command(df)
     with tabs[1]:
         new_application_tab(df, engines, selected_engine)
     with tabs[2]:
         portfolio_overview_tab(df)
+    with tabs[3]:
+        historical_applications_tab(df, engines, selected_engine)
 
 
 if __name__ == "__main__":
