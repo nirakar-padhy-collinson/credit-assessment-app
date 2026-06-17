@@ -89,11 +89,14 @@ class CreditDecisionLogicTests(unittest.TestCase):
 
     def test_generated_dataset_matches_demo_schema_and_contains_golden_cases(self):
         with tempfile.TemporaryDirectory() as data_dir:
-            df = generate_synthetic_dataset(Path(data_dir) / "history.csv", n_rows=25, seed=7)
+            df = generate_synthetic_dataset(Path(data_dir) / "history.csv", n_rows=220, seed=7)
 
         self.assertEqual(validate_history_schema(df), [])
-        self.assertTrue(df["applicant_name"].str.contains("Golden - Clean Salaried Approval").any())
-        self.assertTrue(df["applicant_name"].str.contains("Golden - Conduct Decline").any())
+        self.assertFalse(df["applicant_name"].str.contains("Applicant ").any())
+        self.assertFalse(df["applicant_name"].str.contains("Golden -").any())
+        self.assertGreater((df["credit_score"] < 620).mean(), 0.02)
+        self.assertGreater(df["monthly_income"].quantile(0.95), df["monthly_income"].quantile(0.50) * 1.35)
+        self.assertTrue((df["requested_loan_amount"] % 5000 == 0).all())
 
     def test_portfolio_report_contains_model_risk_evidence(self):
         with tempfile.TemporaryDirectory() as data_dir:

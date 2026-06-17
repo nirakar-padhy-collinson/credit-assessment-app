@@ -13,7 +13,7 @@ from utils.helpers import safe_divide
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DATA_PATH = APP_DIR / "data" / "historical_loan_applications.csv"
-DATASET_VERSION = "credit-demo-v2"
+DATASET_VERSION = "credit-policy-v3"
 EMPLOYEE_BRANCH_MAP = {
     "BR0001": [f"EM{i:04d}" for i in range(1, 6)],
     "BR0002": [f"EM{i:04d}" for i in range(6, 11)],
@@ -25,6 +25,42 @@ ID_PATTERNS = {
     "employee_id": "EM",
     "branch_id": "BR",
 }
+FIRST_NAMES = [
+    "Aarav",
+    "Ananya",
+    "Dev",
+    "Diya",
+    "Ishaan",
+    "Kavya",
+    "Meera",
+    "Neha",
+    "Nisha",
+    "Pranav",
+    "Priya",
+    "Rahul",
+    "Rohan",
+    "Rohit",
+    "Sana",
+    "Vikram",
+]
+LAST_NAMES = [
+    "Bajaj",
+    "Chatterjee",
+    "Gupta",
+    "Iyer",
+    "Kapoor",
+    "Kulkarni",
+    "Malhotra",
+    "Mehta",
+    "Menon",
+    "Nair",
+    "Patel",
+    "Rao",
+    "Sen",
+    "Shah",
+    "Sharma",
+    "Verma",
+]
 HISTORY_COLUMNS = [
     "loan_id",
     "applicant_id",
@@ -113,6 +149,16 @@ def _weighted_choice(rng: np.random.Generator, mapping: dict[str, float]) -> str
     weights = np.array(list(mapping.values()), dtype=float)
     weights = weights / weights.sum()
     return str(rng.choice(values, p=weights))
+
+
+def _round_to(value: float, nearest: int) -> float:
+    return float(round(value / nearest) * nearest)
+
+
+def _synthetic_person_name(rng: np.random.Generator, index: int) -> str:
+    first = str(rng.choice(FIRST_NAMES))
+    last = str(rng.choice(LAST_NAMES))
+    return f"{first} {last}"
 
 
 def format_entity_id(prefix: str, value: int) -> str:
@@ -206,7 +252,14 @@ def _sample_profile(rng: np.random.Generator) -> dict[str, object]:
     base_income = {"Salaried": 85000, "Self-Employed": 105000, "Contract": 72000, "Professional": 125000}[employment_type]
     income_age_adj = (age - 30) * 1800
     income_tenure_adj = years_in_current_job * {"Salaried": 3200, "Self-Employed": 4200, "Contract": 1800, "Professional": 4500}[employment_type]
-    monthly_income = float(np.clip(rng.normal(base_income + income_age_adj + income_tenure_adj, 18000), 25000, 350000))
+    income_center = max(base_income + income_age_adj + income_tenure_adj, 30000)
+    income_sigma = {"Salaried": 0.22, "Self-Employed": 0.30, "Contract": 0.24, "Professional": 0.26}[employment_type]
+    monthly_income = float(rng.lognormal(np.log(income_center) - 0.5 * income_sigma**2, income_sigma))
+    if employment_type in {"Professional", "Self-Employed"} and rng.random() < 0.08:
+        monthly_income *= rng.uniform(1.35, 2.10)
+    if employment_type == "Contract" and rng.random() < 0.16:
+        monthly_income *= rng.uniform(0.68, 0.88)
+    monthly_income = _round_to(float(np.clip(monthly_income, 25000, 360000)), 500)
 
     if age < 28:
         residence_type = _weighted_choice(rng, {"Rented": 0.58, "Family": 0.28, "Owned": 0.14})
@@ -252,8 +305,23 @@ def _sample_credit_behavior(
     stress += -0.05 if existing_customer else 0.03
     stress += -0.04 if monthly_income >= 140000 else (0.02 if monthly_income < 50000 else 0.0)
 
-    delinquency_lambda = float(np.clip(0.45 + stress * 2.2, 0.08, 1.4))
-    bounce_lambda = float(np.clip(0.60 + stress * 2.6, 0.10, 1.8))
+    watch_prob = 0.11
+    watch_prob += 0.08 if employment_type == "Contract" else 0.03 if employment_type == "Self-Employed" else 0.0
+    watch_prob += 0.05 if monthly_income < 65000 else 0.0
+    watch_prob += 0.04 if not existing_customer else 0.0
+    stressed_prob = 0.035
+    stressed_prob += 0.045 if employment_type == "Contract" else 0.015 if employment_type == "Self-Employed" else 0.0
+    stressed_prob += 0.035 if monthly_income < 55000 else 0.0
+    stressed_prob += 0.025 if years_in_current_job < 1.5 else 0.0
+    stressed_prob = min(stressed_prob, 0.18)
+    watch_prob = min(watch_prob, 0.28)
+    clean_prob = max(0.05, 1 - watch_prob - stressed_prob)
+    credit_cohort = str(rng.choice(["clean", "watch", "stressed"], p=np.array([clean_prob, watch_prob, stressed_prob]) / (clean_prob + watch_prob + stressed_prob)))
+
+    stress += {"clean": -0.02, "watch": 0.09, "stressed": 0.22}[credit_cohort]
+
+    delinquency_lambda = float(np.clip(0.36 + stress * 2.5, 0.04, 1.9))
+    bounce_lambda = float(np.clip(0.48 + stress * 2.9, 0.06, 2.4))
 
     delinquency = int(np.clip(rng.poisson(delinquency_lambda), 0, 5))
     bounces = int(np.clip(rng.poisson(bounce_lambda), 0, 6))
@@ -263,10 +331,11 @@ def _sample_credit_behavior(
     score_base += min(years_in_current_job * 2.2, 18)
     score_base += 10 if existing_customer else -4
     score_base += 8 if monthly_income >= 140000 else (-8 if monthly_income < 50000 else 0)
+    score_base += {"clean": 12, "watch": -34, "stressed": -82}[credit_cohort]
     score_base -= delinquency * 25
     score_base -= bounces * 12
 
-    credit_score = int(np.clip(rng.normal(score_base, 28), 540, 860))
+    credit_score = int(np.clip(rng.normal(score_base, 34 if credit_cohort != "clean" else 26), 500, 860))
     return {
         "credit_score": credit_score,
         "prior_delinquency_count_24m": delinquency,
@@ -337,7 +406,7 @@ def _sample_loan_terms(
     elif credit_score < 650:
         high_mult -= 1.2
 
-    loan_amount = float(np.clip(monthly_income * rng.uniform(low_mult, max(low_mult + 0.5, high_mult)), 50000, 4000000))
+    loan_amount = _round_to(float(np.clip(monthly_income * rng.uniform(low_mult, max(low_mult + 0.5, high_mult)), 50000, 4000000)), 5000)
 
     secured_purposes = {"Auto": 0.72, "Home Improvement": 0.42, "Business Support": 0.32, "Personal": 0.10, "Education": 0.06, "Consumer Durable": 0.14}
     collateral_boost = 0.10 if residence_type == "Owned" else 0.0
@@ -345,14 +414,16 @@ def _sample_loan_terms(
     collateral_value = 0.0
     if has_collateral:
         ltv_target = rng.uniform(0.50, 0.88 if credit_score >= 680 else 0.78)
-        collateral_value = float(np.clip(loan_amount / ltv_target, loan_amount * 1.05, loan_amount * 2.4))
+        collateral_value = _round_to(float(np.clip(loan_amount / ltv_target, loan_amount * 1.05, loan_amount * 2.4)), 5000)
 
     obligations_ratio = rng.uniform(0.06, 0.32)
     if age >= 38:
         obligations_ratio += 0.03
     if residence_type == "Rented":
         obligations_ratio += 0.04
-    existing_monthly_obligations = float(np.clip(monthly_income * obligations_ratio, 0, monthly_income * 0.62))
+    if credit_score < 650:
+        obligations_ratio += 0.06
+    existing_monthly_obligations = _round_to(float(np.clip(monthly_income * obligations_ratio, 0, monthly_income * 0.62)), 500)
 
     annual_rate = float(np.clip(
         18.5
@@ -378,7 +449,7 @@ def _sample_loan_terms(
 def golden_demo_applications(start_index: int = 1) -> list[CreditApplication]:
     scenarios = [
         {
-            "applicant_name": "Golden - Clean Salaried Approval",
+            "applicant_name": "Ananya Rao",
             "age": 38,
             "monthly_income": 240000.0,
             "employment_type": "Salaried",
@@ -399,7 +470,7 @@ def golden_demo_applications(start_index: int = 1) -> list[CreditApplication]:
             "city_tier": "Tier 1",
         },
         {
-            "applicant_name": "Golden - KYC Conditional Approval",
+            "applicant_name": "Vikram Iyer",
             "age": 35,
             "monthly_income": 185000.0,
             "employment_type": "Professional",
@@ -420,7 +491,7 @@ def golden_demo_applications(start_index: int = 1) -> list[CreditApplication]:
             "city_tier": "Tier 1",
         },
         {
-            "applicant_name": "Golden - Affordability Review",
+            "applicant_name": "Nisha Kapoor",
             "age": 31,
             "monthly_income": 85000.0,
             "employment_type": "Self-Employed",
@@ -441,7 +512,7 @@ def golden_demo_applications(start_index: int = 1) -> list[CreditApplication]:
             "city_tier": "Tier 2",
         },
         {
-            "applicant_name": "Golden - Conduct Decline",
+            "applicant_name": "Rohit Sen",
             "age": 29,
             "monthly_income": 120000.0,
             "employment_type": "Contract",
@@ -545,7 +616,7 @@ def generate_synthetic_dataset(
             applicant_id=format_entity_id("AP", i),
             employee_id=employee_id,
             branch_id=branch_id,
-            applicant_name=f"Applicant {i}",
+            applicant_name=_synthetic_person_name(rng, i),
             age=int(profile["age"]),
             monthly_income=float(profile["monthly_income"]),
             employment_type=str(profile["employment_type"]),

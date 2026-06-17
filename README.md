@@ -6,4 +6,6 @@ The historical case review workspace is preserved in the codebase for future gov
 
 The workspace now includes a suite command landing, guided scenario library, structured banker brief, governance badges, decision packet export, champion/challenger comparison, what-if simulation, policy override notes, similar-case comparison, model health indicators, and banker task queues.
 
+The bundled sample portfolio is synthetic but domain-calibrated: applicant profiles, income, bureau quality, obligations, FOIR, collateral, policy outcomes, and observed defaults are generated with banking-style relationships rather than arbitrary random values.
+
 For the presenter talk track, use [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
